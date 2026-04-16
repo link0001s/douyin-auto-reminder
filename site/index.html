@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>抖音催更控制台</title>
+    <meta
+      name="description"
+      content="网页化控制台：配置抖音催更任务，自动写入 GitHub Secrets，触发每日检测。"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="aurora aurora-a" aria-hidden="true"></div>
+    <div class="aurora aurora-b" aria-hidden="true"></div>
+    <div class="scanline" aria-hidden="true"></div>
+
+    <main class="page">
+      <section class="hero reveal">
+        <p class="label">DOUYIN UPDATE RADAR</p>
+        <h1>催更控制台</h1>
+        <p class="subtitle">
+          直接在网页完成配置：写入 GitHub Secrets、触发检测、查看执行结果。
+        </p>
+        <div class="hero-meta">
+          <span>Cloud</span>
+          <span>GitHub Actions</span>
+          <span>1-Click Run</span>
+        </div>
+      </section>
+
+      <section class="card reveal delay-1">
+        <div class="card-head">
+          <h2>任务配置</h2>
+          <a
+            href="https://github.com/settings/tokens?type=beta"
+            target="_blank"
+            rel="noreferrer"
+            class="token-link"
+            >创建 GitHub Token</a
+          >
+        </div>
+
+        <form id="configForm" class="form-grid" autocomplete="off">
+          <label>
+            GitHub Token
+            <input id="githubToken" type="password" placeholder="github_pat_xxx" required />
+          </label>
+
+          <label>
+            仓库 Owner
+            <input id="repoOwner" type="text" value="link0001s" required />
+          </label>
+
+          <label>
+            仓库 Name
+            <input id="repoName" type="text" value="douyin-auto-reminder" required />
+          </label>
+
+          <label class="full">
+            抖音主页链接
+            <input
+              id="douyinUrl"
+              type="url"
+              placeholder="https://www.douyin.com/user/..."
+              required
+            />
+          </label>
+
+          <label>
+            SMTP Host
+            <input id="smtpHost" type="text" placeholder="smtp.qq.com" required />
+          </label>
+
+          <label>
+            SMTP Port
+            <input id="smtpPort" type="number" value="465" required />
+          </label>
+
+          <label>
+            发件邮箱账号
+            <input id="smtpUser" type="text" placeholder="your_sender@qq.com" required />
+          </label>
+
+          <label>
+            SMTP 授权码
+            <input id="smtpPassword" type="password" placeholder="邮箱授权码" required />
+          </label>
+
+          <label>
+            From 发件邮箱
+            <input id="emailFrom" type="email" placeholder="your_sender@qq.com" required />
+          </label>
+
+          <label>
+            To 收件邮箱
+            <input id="emailTo" type="text" placeholder="a@example.com,b@example.com" required />
+          </label>
+
+          <label>
+            时区
+            <input id="timezone" type="text" value="Asia/Shanghai" />
+          </label>
+
+          <label>
+            邮件标题前缀
+            <input id="subjectPrefix" type="text" value="[抖音催更]" />
+          </label>
+
+          <label class="full">
+            可选：DOUYIN_COOKIES_B64
+            <textarea
+              id="cookiesB64"
+              rows="4"
+              placeholder="把 cookies.txt 做 base64 后粘贴到这里"
+            ></textarea>
+          </label>
+        </form>
+
+        <div class="actions">
+          <button id="saveSecretsBtn" class="btn btn-solid" type="button">保存 Secrets</button>
+          <button id="runBtn" class="btn btn-outline" type="button">触发一次检测</button>
+          <button id="saveAndRunBtn" class="btn btn-accent" type="button">
+            保存并立即运行
+          </button>
+          <button id="refreshBtn" class="btn btn-ghost" type="button">刷新运行状态</button>
+        </div>
+
+        <p class="hint">
+          Token 仅在你的浏览器内使用，不会上传到本页面服务器。Token 需要仓库 `Actions` 与 `Contents`
+          写权限。
+        </p>
+      </section>
+
+      <section class="card reveal delay-2">
+        <div class="status-head">
+          <h2>运行状态</h2>
+          <span id="statusBadge" class="badge idle">等待操作</span>
+        </div>
+
+        <div id="latestRun" class="latest-run empty">还没有读取到运行记录。</div>
+
+        <pre id="logBox" class="log-box">[系统] 控制台就绪</pre>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
