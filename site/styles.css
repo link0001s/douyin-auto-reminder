@@ -217,6 +217,10 @@ h1 {
   filter: drop-shadow(0 0 10px rgba(255, 159, 102, 0.34));
 }
 
+.side-chip.tone-lion svg {
+  filter: drop-shadow(0 0 10px rgba(231, 179, 95, 0.36));
+}
+
 .side-chip.tone-d svg {
   filter: drop-shadow(0 0 10px rgba(214, 227, 255, 0.3));
 }
