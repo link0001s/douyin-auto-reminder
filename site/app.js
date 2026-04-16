@@ -42,11 +42,86 @@ function setBusy(busy) {
   els.refreshBtn.disabled = busy;
 }
 
+const FETCH_PROXIES = [
+  {
+    name: "jina",
+    buildUrl: (targetUrl) => `https://r.jina.ai/http://${targetUrl.replace(/^https?:\/\//i, "")}`,
+    headers: {
+      Accept: "text/plain, text/markdown;q=0.9, */*;q=0.8",
+    },
+  },
+  {
+    name: "allorigins",
+    buildUrl: (targetUrl) => `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+    headers: {
+      Accept: "text/plain, application/json;q=0.9, */*;q=0.8",
+    },
+  },
+];
+
+function trimTailSymbols(value) {
+  return (value || "").replace(/[)\]}>》】"'“”‘’，。！？；;,.]+$/g, "");
+}
+
+function extractFirstUrl(raw) {
+  const match = String(raw || "").match(/https?:\/\/[^\s]+/i);
+  if (!match || !match[0]) return "";
+  return trimTailSymbols(match[0]);
+}
+
+function extractSecUid(raw) {
+  const source = String(raw || "");
+  const fromQuery = source.match(/[?&]sec_uid=([^&#\s]+)/i);
+  if (fromQuery && fromQuery[1]) {
+    try {
+      return decodeURIComponent(fromQuery[1]);
+    } catch {
+      return fromQuery[1];
+    }
+  }
+
+  const fromPath = source.match(/douyin\.com\/user\/([^/?#\s]+)/i);
+  if (fromPath && fromPath[1] && fromPath[1].startsWith("MS4w")) {
+    try {
+      return decodeURIComponent(fromPath[1]);
+    } catch {
+      return fromPath[1];
+    }
+  }
+
+  const direct = source.match(/\b(MS4w\.LjAB[A-Za-z0-9_-]+)\b/);
+  return direct && direct[1] ? direct[1] : "";
+}
+
 function normalizeDouyinUrl(raw) {
-  const value = (raw || "").trim();
-  if (!value) return "";
-  if (/^https?:\/\//i.test(value)) return value;
-  return `https://www.douyin.com/user/${encodeURIComponent(value)}`;
+  const source = (raw || "").trim();
+  if (!source) return "";
+
+  const firstUrl = extractFirstUrl(source);
+  const seed = firstUrl || source;
+  const secUid = extractSecUid(source) || extractSecUid(seed);
+  if (secUid) {
+    return `https://www.douyin.com/user/${encodeURIComponent(secUid)}`;
+  }
+
+  let value = trimTailSymbols(seed).replace(/&amp;/g, "&");
+  if (!/^https?:\/\//i.test(value)) {
+    value = value.replace(/^@/, "");
+    return `https://www.douyin.com/user/${encodeURIComponent(value)}`;
+  }
+
+  try {
+    const parsed = new URL(value);
+    if (parsed.hostname.toLowerCase() === "v.douyin.com") {
+      return `${parsed.origin}${parsed.pathname}`;
+    }
+
+    const pathname = parsed.pathname.replace(/\/+$/, "");
+    const normalizedPath = pathname || "/";
+    return `${parsed.protocol}//${parsed.host}${normalizedPath}${parsed.search}`;
+  } catch {
+    return value;
+  }
 }
 
 function formatTs(iso) {
@@ -109,46 +184,171 @@ function readForm() {
 
 function extractVideoIds(content) {
   const ids = new Set();
+  const text = String(content || "");
   const patterns = [
     /\/video\/(\d{8,24})/g,
+    /\/note\/(\d{8,24})/g,
     /"aweme_id"\s*:\s*"?(\d{8,24})"?/g,
     /awemeId\s*[:=]\s*"?(\d{8,24})"?/g,
   ];
 
   for (const pattern of patterns) {
-    let match = pattern.exec(content);
+    let match = pattern.exec(text);
     while (match) {
       if (match[1]) ids.add(match[1]);
-      match = pattern.exec(content);
+      match = pattern.exec(text);
     }
+  }
+
+  try {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      const payload = JSON.parse(text.slice(start, end + 1));
+      const listBuckets = [
+        payload?.aweme_list,
+        payload?.item_list,
+        payload?.data?.aweme_list,
+        payload?.data?.item_list,
+      ];
+
+      listBuckets.forEach((list) => {
+        if (!Array.isArray(list)) return;
+        list.forEach((item) => {
+          const id = String(item?.aweme_id || item?.awemeId || item?.id || "");
+          if (/^\d{8,24}$/.test(id)) ids.add(id);
+        });
+      });
+    }
+  } catch {
+    // 非 JSON 响应时忽略
   }
 
   return [...ids];
 }
 
+function classifyFetchPayload(text, status) {
+  const content = String(text || "");
+  const lower = content.toLowerCase();
+
+  if (status === 451 || lower.includes("securitycompromiseerror") || lower.includes("ddos attack suspected")) {
+    return "blocked";
+  }
+  if (
+    lower.includes("byted_acrawler") ||
+    lower.includes("__ac_signature") ||
+    lower.includes("bdturing") ||
+    lower.includes("captcha")
+  ) {
+    return "anti_bot";
+  }
+  if (lower.includes("not yet fully loaded") || lower.includes("please wait")) {
+    return "not_ready";
+  }
+  if (status === 408 || status === 504 || status === 522) {
+    return "timeout";
+  }
+  return "normal";
+}
+
+function buildFetchTargets(douyinUrl) {
+  const targets = new Set([douyinUrl]);
+  const secUid = extractSecUid(douyinUrl);
+
+  try {
+    const parsed = new URL(douyinUrl);
+    if (
+      parsed.hostname.toLowerCase().includes("douyin.com") &&
+      parsed.pathname.includes("/user/") &&
+      !parsed.searchParams.get("showTab")
+    ) {
+      const withPostTab = new URL(parsed.toString());
+      withPostTab.searchParams.set("showTab", "post");
+      targets.add(withPostTab.toString());
+    }
+  } catch {
+    // ignore
+  }
+
+  if (secUid) {
+    const encoded = encodeURIComponent(secUid);
+    targets.add(`https://www.iesdouyin.com/web/api/v2/aweme/post/?sec_uid=${encoded}&count=35&max_cursor=0&aid=1128`);
+    targets.add(`https://m.douyin.com/web/api/v2/aweme/post/?sec_uid=${encoded}&count=35&max_cursor=0`);
+    targets.add(
+      `https://www.douyin.com/aweme/v1/web/aweme/post/?sec_user_id=${encoded}&count=35&max_cursor=0&aid=6383&device_platform=webapp&channel=channel_pc_web`
+    );
+  }
+
+  return [...targets];
+}
+
+async function fetchWithTimeout(url, options, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...(options || {}),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchVideoIds(douyinUrl) {
-  const stripped = douyinUrl.replace(/^https?:\/\//i, "");
-  const proxyUrl = `https://r.jina.ai/http://${stripped}`;
+  const targets = buildFetchTargets(douyinUrl);
+  let sawAntiBot = false;
+  let sawShortLink = false;
 
-  const res = await fetch(proxyUrl, {
-    method: "GET",
-    headers: {
-      Accept: "text/plain, text/markdown;q=0.9, */*;q=0.8",
-    },
-  });
+  for (const targetUrl of targets) {
+    try {
+      const targetHost = new URL(targetUrl).hostname.toLowerCase();
+      if (targetHost === "v.douyin.com") sawShortLink = true;
+    } catch {
+      // ignore
+    }
 
-  if (!res.ok) {
-    throw new Error(`抓取失败: ${res.status}`);
+    const attempts = await Promise.allSettled(
+      FETCH_PROXIES.map(async (proxy) => {
+        const res = await fetchWithTimeout(
+          proxy.buildUrl(targetUrl),
+          {
+            method: "GET",
+            headers: proxy.headers,
+          },
+          8000
+        );
+        const text = await res.text();
+        return {
+          status: res.status,
+          text,
+          proxy: proxy.name,
+        };
+      })
+    );
+
+    for (const attempt of attempts) {
+      if (attempt.status === "rejected") continue;
+      const { status, text } = attempt.value;
+      const tag = classifyFetchPayload(text, status);
+      if (tag === "blocked" || tag === "anti_bot") {
+        sawAntiBot = true;
+      }
+
+      const ids = extractVideoIds(text);
+      if (ids.length) {
+        return ids;
+      }
+    }
   }
 
-  const text = await res.text();
-  const ids = extractVideoIds(text);
-
-  if (!ids.length) {
-    throw new Error("未抓到视频 ID，请改用完整抖音主页链接重试");
+  if (sawAntiBot) {
+    throw new Error("检测通道被抖音风控拦截，请稍后重试；若持续失败，请改用完整主页链接或云端版（带 cookies）");
   }
-
-  return ids;
+  if (sawShortLink) {
+    throw new Error("短链解析失败，请改粘贴完整主页链接（https://www.douyin.com/user/...）");
+  }
+  throw new Error("未抓到视频 ID。请粘贴账号主页链接（/user/...）或直接粘贴 sec_uid（MS4w...）重试");
 }
 
 function buildMailto(state, reason) {
@@ -312,6 +512,7 @@ async function handleSave() {
   setBusy(true);
   setPill("load", "保存中");
   addLog(`初始化周期：${planLabel(input.planDays)}，开始抓取基准视频...`);
+  addLog(`识别到检测链接：${input.douyinUrl}`);
 
   try {
     const ids = await fetchVideoIds(input.douyinUrl);
@@ -351,18 +552,21 @@ async function handleManualRefresh() {
     addLog("请先点击“保存状态”初始化周期。\n");
     return;
   }
+  const resolvedDouyinUrl = normalizeDouyinUrl(state.douyinInput || state.douyinUrl || "");
 
   setBusy(true);
   setPill("load", "检测中");
   addLog("开始手动检测...");
+  addLog(`本次使用链接：${resolvedDouyinUrl}`);
 
   try {
     const nowIso = new Date().toISOString();
-    const ids = await fetchVideoIds(state.douyinUrl || normalizeDouyinUrl(state.douyinInput));
+    const ids = await fetchVideoIds(resolvedDouyinUrl);
     const newCount = calcNewCount(ids, state.baselineVideoIds || []);
 
     let next = {
       ...state,
+      douyinUrl: resolvedDouyinUrl,
       lastManualCheckAt: nowIso,
       lastAutoCheckAt: nowIso,
       lastKnownNewCount: newCount,
