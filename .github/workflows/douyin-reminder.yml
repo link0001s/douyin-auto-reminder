@@ -1,0 +1,117 @@
+name: Douyin Daily Reminder
+
+on:
+  schedule:
+    # 09:00 Asia/Shanghai = 01:00 UTC
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: douyin-daily-reminder
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Prepare optional cookies
+        shell: bash
+        env:
+          DOUYIN_COOKIES_B64: ${{ secrets.DOUYIN_COOKIES_B64 }}
+        run: |
+          if [ -n "${DOUYIN_COOKIES_B64:-}" ]; then
+            echo "$DOUYIN_COOKIES_B64" | base64 -d > cookies.txt
+          fi
+
+      - name: Build runtime config from secrets
+        shell: bash
+        env:
+          DOUYIN_USER_URL: ${{ secrets.DOUYIN_USER_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          TIMEZONE: ${{ secrets.TIMEZONE }}
+          MAIL_SUBJECT_PREFIX: ${{ secrets.MAIL_SUBJECT_PREFIX }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          def must(name: str) -> str:
+              value = os.getenv(name, "").strip()
+              if not value:
+                  raise SystemExit(f"Missing required secret: {name}")
+              return value
+
+          timezone = os.getenv("TIMEZONE", "Asia/Shanghai").strip() or "Asia/Shanghai"
+          subject_prefix = os.getenv("MAIL_SUBJECT_PREFIX", "[抖音催更]").strip() or "[抖音催更]"
+          email_to_raw = must("EMAIL_TO")
+          email_to = [x.strip() for x in email_to_raw.split(",") if x.strip()]
+          if not email_to:
+              raise SystemExit("EMAIL_TO must contain at least one email")
+
+          config = {
+              "douyin_user_url": must("DOUYIN_USER_URL"),
+              "timezone": timezone,
+              "mail_subject_prefix": subject_prefix,
+              "state_file": "state.json",
+              "yt_dlp": {
+                  "playlistend": 30,
+                  "cookies_file": "cookies.txt"
+              },
+              "email": {
+                  "smtp_host": must("SMTP_HOST"),
+                  "smtp_port": int(must("SMTP_PORT")),
+                  "smtp_user": must("SMTP_USER"),
+                  "smtp_password": must("SMTP_PASSWORD"),
+                  "from": must("EMAIL_FROM"),
+                  "to": email_to,
+                  "use_ssl": True,
+                  "use_starttls": False,
+              },
+          }
+
+          with open("config.json", "w", encoding="utf-8") as f:
+              json.dump(config, f, ensure_ascii=False, indent=2)
+          PY
+
+      - name: Run checker
+        run: python watch_douyin.py --config config.json
+
+      - name: Persist state
+        shell: bash
+        run: |
+          if [ ! -f state.json ]; then
+            echo "state.json not found, skip persist"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f state.json
+
+          if git diff --staged --quiet; then
+            echo "No state changes"
+            exit 0
+          fi
+
+          git commit -m "chore: update douyin state"
+          git push

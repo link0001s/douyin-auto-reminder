@@ -1,0 +1,20 @@
+{
+  "douyin_user_url": "https://www.douyin.com/user/你的账号主页链接",
+  "timezone": "Asia/Shanghai",
+  "mail_subject_prefix": "[抖音催更]",
+  "state_file": "state.json",
+  "yt_dlp": {
+    "playlistend": 30,
+    "cookies_file": "cookies.txt"
+  },
+  "email": {
+    "smtp_host": "smtp.qq.com",
+    "smtp_port": 465,
+    "smtp_user": "your_sender@qq.com",
+    "smtp_password": "你的邮箱授权码",
+    "from": "your_sender@qq.com",
+    "to": ["receiver@example.com"],
+    "use_ssl": true,
+    "use_starttls": false
+  }
+}
