@@ -6,7 +6,7 @@
     <title>抖音违约监测台</title>
     <meta
       name="description"
-      content="输入抖音号与通知邮箱，保存基准状态，刷新检测是否违约（未更新）。"
+      content="输入抖音号与通知邮箱，保存状态，按 7/15/30 天规则检测是否违约并发送提醒。"
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -17,23 +17,53 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="bg-noise" aria-hidden="true"></div>
+    <div class="bg-grid" aria-hidden="true"></div>
     <div class="bg-orb orb-a" aria-hidden="true"></div>
     <div class="bg-orb orb-b" aria-hidden="true"></div>
 
     <main class="wrap">
       <section class="hero reveal">
-        <p class="kicker">DOUYIN BREACH MONITOR</p>
+        <div class="hero-head">
+          <p class="kicker">DOUYIN BREACH MONITOR</p>
+          <span id="statusPill" class="pill idle">待初始化</span>
+        </div>
         <h1>违约监测台</h1>
         <p class="desc">
-          只保留你要的核心动作：输入抖音号、输入通知邮箱、保存状态、刷新状态。
+          规则固定：7天7条、15天15条、30天30条。到期后如果没点检测，或检测不达标，立即触发邮件提醒。
         </p>
+
+        <div class="mascot-row" aria-hidden="true">
+          <div class="mascot-card">
+            <svg viewBox="0 0 64 64" class="icon-svg" role="img" aria-label="wrench">
+              <circle cx="32" cy="32" r="30" fill="#1d2430" stroke="#38465f" stroke-width="2" />
+              <path
+                d="M41 17a9 9 0 0 0-9.6 12.4L19.5 41.3a4.2 4.2 0 1 0 5.9 5.9l11.8-11.8A9 9 0 0 0 47 25.8l-5.2 2.3-3.9-3.9Z"
+                fill="#78d6ff"
+              />
+              <circle cx="22.3" cy="44.4" r="1.8" fill="#0f131b" />
+            </svg>
+            <span>小扳手巡检</span>
+          </div>
+
+          <div class="mascot-card">
+            <svg viewBox="0 0 64 64" class="icon-svg" role="img" aria-label="robot">
+              <circle cx="32" cy="32" r="30" fill="#1d2430" stroke="#38465f" stroke-width="2" />
+              <rect x="18" y="19" width="28" height="26" rx="8" fill="#81ffb6" />
+              <rect x="21" y="22" width="22" height="14" rx="4" fill="#112018" opacity="0.36" />
+              <circle cx="26" cy="29" r="3" fill="#0f131b" />
+              <circle cx="38" cy="29" r="3" fill="#0f131b" />
+              <rect x="25" y="37" width="14" height="3.4" rx="1.7" fill="#0f131b" />
+              <rect x="30.5" y="13" width="3" height="7" rx="1.5" fill="#81ffb6" />
+              <circle cx="32" cy="12" r="2.1" fill="#ff8f5a" />
+            </svg>
+            <span>小机器人提醒</span>
+          </div>
+        </div>
       </section>
 
       <section class="panel reveal delay-1">
         <div class="panel-head">
           <h2>监测设置</h2>
-          <span id="statusPill" class="pill idle">待初始化</span>
         </div>
 
         <form id="monitorForm" class="grid" autocomplete="off">
@@ -53,38 +83,43 @@
           </label>
 
           <label class="field">
-            <span>违约阈值（小时）</span>
-            <input id="breachHours" type="number" min="1" value="24" required />
+            <span>规则周期</span>
+            <select id="rulePlan">
+              <option value="7">7天7条</option>
+              <option value="15">15天15条</option>
+              <option value="30" selected>30天30条</option>
+            </select>
           </label>
         </form>
 
         <div class="actions">
           <button id="saveBtn" class="btn solid" type="button">保存状态</button>
-          <button id="refreshBtn" class="btn ghost" type="button">刷新状态</button>
+          <button id="refreshBtn" class="btn ghost" type="button">点检测 / 刷新状态</button>
         </div>
 
-        <p class="tip">
-          说明：页面会优先尝试自动抓取最新视频 ID；若抓取失败，会提示你手动再次刷新或更换抖音主页链接。
-        </p>
+        <div id="alertBox" class="alert hidden">
+          <p id="alertText">违约提醒</p>
+          <a id="alertMailLink" href="#" target="_blank" rel="noreferrer">手动发送邮件</a>
+        </div>
       </section>
 
       <section class="stats reveal delay-2">
         <article class="stat-card">
-          <p class="title">当前基准视频</p>
-          <p id="baselineVideo" class="value">未保存</p>
-          <p id="baselineTime" class="meta">-</p>
+          <p class="title">当前周期</p>
+          <p id="cycleView" class="value">30天30条</p>
+          <p id="dueTime" class="meta">到期时间：-</p>
         </article>
 
         <article class="stat-card">
-          <p class="title">最近检测</p>
-          <p id="latestResult" class="value">未检测</p>
-          <p id="latestTime" class="meta">-</p>
+          <p class="title">本周期新增视频</p>
+          <p id="progressCount" class="value">0 / 30</p>
+          <p id="latestTime" class="meta">最近检测：-</p>
         </article>
 
         <article class="stat-card">
           <p class="title">通知邮箱</p>
           <p id="emailView" class="value">-</p>
-          <p class="meta">违约时发送提醒</p>
+          <p id="latestResult" class="meta">状态：待初始化</p>
         </article>
       </section>
 
