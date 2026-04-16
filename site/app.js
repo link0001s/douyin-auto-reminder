@@ -49,8 +49,11 @@ function normalizeRunLogText(text) {
   }
 
   if (successSignals.some((item) => raw.includes(item))) {
-    if (raw.includes("成功！")) return raw;
-    return raw.replace(/成功/g, "成功！");
+    if (raw.includes("成功")) {
+      if (raw.includes("成功！")) return raw;
+      return raw.replace(/成功/g, "成功！");
+    }
+    return "成功！";
   }
 
   return raw;
