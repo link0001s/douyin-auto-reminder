@@ -67,7 +67,7 @@ function addLog(text) {
 
 function setPill(mode, text) {
   els.statusPill.className = `pill ${mode}`;
-  els.statusPill.textContent = text;
+  els.statusPill.textContent = normalizeRunLogText(text);
 }
 
 function setBusy(busy) {
@@ -567,7 +567,7 @@ async function trySendMail(state, reason) {
 }
 
 function showAlert(text, mailto) {
-  els.alertText.textContent = text;
+  els.alertText.textContent = normalizeRunLogText(text);
   els.alertMailLink.href = mailto;
   els.alertBox.classList.remove("hidden");
 }
@@ -609,7 +609,7 @@ function render(state) {
   }
   els.latestTime.textContent = `最近检测：${formatTs(state.lastManualCheckAt || state.lastAutoCheckAt)}`;
   els.emailView.textContent = state.noticeEmail || "-";
-  els.latestResult.textContent = `状态：${state.latestResultText || "待初始化"}`;
+  els.latestResult.textContent = `状态：${normalizeRunLogText(state.latestResultText || "待初始化")}`;
 
   const mode = state.lastStatus || "idle";
   if (locked && mode !== "warn") {
