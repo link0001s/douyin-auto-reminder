@@ -472,11 +472,17 @@ def main() -> int:
     now = datetime.now(tz)
     today = now.strftime("%Y-%m-%d")
 
-    latest_video = extract_latest_video(
-        config.douyin_user_url,
-        cookie_file=config.yt_dlp_cookie_file,
-        playlistend=config.yt_dlp_playlistend,
-    )
+    fetch_error = ""
+    try:
+        latest_video = extract_latest_video(
+            config.douyin_user_url,
+            cookie_file=config.yt_dlp_cookie_file,
+            playlistend=config.yt_dlp_playlistend,
+        )
+    except Exception as exc:  # noqa: BLE001
+        latest_video = None
+        fetch_error = str(exc)
+
     state = load_state(config.state_file)
 
     current_video_id = latest_video["video_id"] if latest_video else ""
@@ -487,7 +493,23 @@ def main() -> int:
     state["cloud_result"] = "unknown"
 
     if latest_video is None:
-        raise RuntimeError("本次未抓取到视频信息，可能是网络、风控或 cookies 失效。")
+        state["cloud_result"] = "fetch_failed"
+        state["last_fetch_error"] = fetch_error or "本次未抓取到视频信息，可能是网络、风控或 cookies 失效。"
+
+        if "last_seen_video_id" not in state:
+            state["last_seen_video_id"] = "INIT_UNKNOWN"
+            state["last_seen_title"] = "(初始化占位：暂未抓到视频样本)"
+            state["last_seen_url"] = config.douyin_user_url
+            state["last_seen_published_at"] = None
+            state["last_reminder_date"] = None
+            state["cloud_result"] = "initialized_no_sample"
+            save_state(config.state_file, state)
+            print("首次运行：未抓到视频样本，已完成初始化占位。")
+            return 0
+
+        save_state(config.state_file, state)
+        print(f"本次抓取失败，已跳过提醒。错误: {state['last_fetch_error']}")
+        return 0
 
     if "last_seen_video_id" not in state:
         state["last_seen_video_id"] = current_video_id

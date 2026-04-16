@@ -88,6 +88,12 @@ function buildCloudResultText(cloudState) {
   if (result === "initialized") {
     return `云端已初始化（${checkedAt}）`;
   }
+  if (result === "initialized_no_sample") {
+    return `云端已初始化（暂未抓到样本，${checkedAt}）`;
+  }
+  if (result === "fetch_failed") {
+    return `云端抓取失败（已跳过提醒，${checkedAt}）`;
+  }
   if (result === "not_initialized") {
     return "云端未初始化，请先在 GitHub Actions 运行一次。";
   }
