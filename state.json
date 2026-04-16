@@ -1,10 +1,11 @@
 {
-  "account_url": "",
-  "last_checked_at": null,
-  "cloud_result": "not_initialized",
+  "account_url": "https://www.douyin.com/user/MS4wLjABAAAAtLTamz3gZsmTq5nomzJbSN3UmQ5RvzLezhCIdrTuqGw",
+  "last_checked_at": "2026-04-16T18:34:13.409010+08:00",
+  "cloud_result": "fetch_failed",
   "last_seen_video_id": "",
   "last_seen_title": "",
   "last_seen_url": "",
   "last_seen_published_at": null,
-  "last_reminder_date": null
+  "last_reminder_date": null,
+  "last_fetch_error": "抓取失败（yt-dlp + sec_uid 接口均失败）: ERROR: Unsupported URL: https://www.douyin.com/user/MS4wLjABAAAAtLTamz3gZsmTq5nomzJbSN3UmQ5RvzLezhCIdrTuqGw"
 }
