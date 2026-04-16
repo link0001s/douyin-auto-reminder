@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import smtplib
 import sys
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
+from urllib import parse as urlparse
 from urllib import error as urlerror
 from urllib import request as urlrequest
 from zoneinfo import ZoneInfo
@@ -161,12 +163,136 @@ def pick_latest_entry(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
     return scored[0][1]
 
 
+def extract_sec_uid(text: str) -> str:
+    source = str(text or "")
+
+    m_query = re.search(r"[?&]sec_uid=([^&#\s]+)", source, re.IGNORECASE)
+    if m_query and m_query.group(1):
+        return urlparse.unquote(m_query.group(1))
+
+    m_user = re.search(r"/user/(MS4w[^\s/?#]+)", source, re.IGNORECASE)
+    if m_user and m_user.group(1):
+        return urlparse.unquote(m_user.group(1))
+
+    m_direct = re.search(r"\b(MS4w\.LjAB[A-Za-z0-9_-]+)\b", source)
+    if m_direct and m_direct.group(1):
+        return m_direct.group(1)
+
+    return ""
+
+
+def parse_possible_json_payload(text: str) -> dict[str, Any] | None:
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
+        return None
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start < 0 or end <= start:
+            return None
+        try:
+            data = json.loads(text[start : end + 1])
+            return data if isinstance(data, dict) else None
+        except json.JSONDecodeError:
+            return None
+
+
+def fetch_latest_video_by_sec_uid(sec_uid: str) -> dict[str, Any] | None:
+    if not sec_uid:
+        return None
+
+    encoded = urlparse.quote(sec_uid, safe="")
+    endpoints = [
+        f"https://www.iesdouyin.com/web/api/v2/aweme/post/?sec_uid={encoded}&count=30&max_cursor=0&aid=1128",
+        f"https://m.douyin.com/web/api/v2/aweme/post/?sec_uid={encoded}&count=30&max_cursor=0",
+    ]
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json,text/plain,*/*",
+    }
+
+    for endpoint in endpoints:
+        req = urlrequest.Request(endpoint, headers=headers, method="GET")
+        try:
+            with urlrequest.urlopen(req, timeout=20) as resp:
+                if int(resp.getcode() or 0) >= 400:
+                    continue
+                raw = resp.read().decode("utf-8", errors="ignore")
+        except Exception:
+            continue
+
+        payload = parse_possible_json_payload(raw)
+        if not payload:
+            continue
+
+        candidates: list[dict[str, Any]] = []
+        list_buckets = [
+            payload.get("aweme_list"),
+            payload.get("item_list"),
+            (payload.get("data") or {}).get("aweme_list"),
+            (payload.get("data") or {}).get("item_list"),
+        ]
+        for bucket in list_buckets:
+            if isinstance(bucket, list):
+                candidates.extend([x for x in bucket if isinstance(x, dict)])
+
+        if not candidates:
+            continue
+
+        latest = max(
+            candidates,
+            key=lambda item: int(item.get("create_time") or item.get("publish_time") or 0),
+        )
+
+        create_ts = int(latest.get("create_time") or latest.get("publish_time") or 0)
+        published_at = (
+            datetime.fromtimestamp(create_ts, tz=timezone.utc).isoformat()
+            if create_ts > 0
+            else None
+        )
+
+        title = str(
+            latest.get("desc")
+            or (latest.get("share_info") or {}).get("share_title")
+            or "(无标题)"
+        )
+        video_id = str(
+            latest.get("aweme_id")
+            or latest.get("id")
+            or latest.get("group_id")
+            or title
+        )
+        webpage_url = str(
+            latest.get("share_url")
+            or latest.get("aweme_url")
+            or (latest.get("video") or {}).get("play_addr", {}).get("url_list", [""])[0]
+            or ""
+        )
+
+        return {
+            "video_id": video_id,
+            "title": title,
+            "webpage_url": webpage_url,
+            "published_at": published_at,
+        }
+
+    return None
+
+
 def extract_latest_video(
     douyin_user_url: str,
     *,
     cookie_file: Path | None = None,
     playlistend: int = 30,
 ) -> dict[str, Any] | None:
+    info: dict[str, Any] | None = None
+    ytdlp_error: Exception | None = None
     try:
         import yt_dlp  # type: ignore
     except ModuleNotFoundError as exc:
@@ -183,10 +309,19 @@ def extract_latest_video(
     if cookie_file:
         ydl_opts["cookiefile"] = str(cookie_file)
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(douyin_user_url, download=False)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(douyin_user_url, download=False)
+    except Exception as exc:  # noqa: BLE001
+        ytdlp_error = exc
 
     if info is None:
+        sec_uid = extract_sec_uid(douyin_user_url)
+        fallback = fetch_latest_video_by_sec_uid(sec_uid) if sec_uid else None
+        if fallback is not None:
+            return fallback
+        if ytdlp_error is not None:
+            raise RuntimeError(f"抓取失败（yt-dlp + sec_uid 接口均失败）: {ytdlp_error}") from ytdlp_error
         return None
 
     entries: list[dict[str, Any]] = []
