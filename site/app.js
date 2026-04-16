@@ -1,308 +1,327 @@
-import sodium from "https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.15/+esm";
+const STORAGE_KEY = "douyin-breach-monitor-v3";
 
-const workflowFile = "douyin-reminder.yml";
-const formEl = document.getElementById("configForm");
-const logBox = document.getElementById("logBox");
-const latestRun = document.getElementById("latestRun");
-const statusBadge = document.getElementById("statusBadge");
-const buttons = {
-  save: document.getElementById("saveSecretsBtn"),
-  run: document.getElementById("runBtn"),
-  saveAndRun: document.getElementById("saveAndRunBtn"),
-  refresh: document.getElementById("refreshBtn"),
+const els = {
+  form: document.getElementById("monitorForm"),
+  douyinInput: document.getElementById("douyinInput"),
+  noticeEmail: document.getElementById("noticeEmail"),
+  breachHours: document.getElementById("breachHours"),
+  saveBtn: document.getElementById("saveBtn"),
+  refreshBtn: document.getElementById("refreshBtn"),
+  statusPill: document.getElementById("statusPill"),
+  baselineVideo: document.getElementById("baselineVideo"),
+  baselineTime: document.getElementById("baselineTime"),
+  latestResult: document.getElementById("latestResult"),
+  latestTime: document.getElementById("latestTime"),
+  emailView: document.getElementById("emailView"),
+  logBox: document.getElementById("logBox"),
 };
 
-const savedFields = [
-  "repoOwner",
-  "repoName",
-  "douyinUrl",
-  "smtpHost",
-  "smtpPort",
-  "smtpUser",
-  "emailFrom",
-  "emailTo",
-  "timezone",
-  "subjectPrefix",
-];
-
-function nowStamp() {
-  return new Date().toLocaleTimeString("zh-CN", { hour12: false });
+function ts() {
+  return new Date().toLocaleString("zh-CN", { hour12: false });
 }
 
-function addLog(message) {
-  logBox.textContent += `\n[${nowStamp()}] ${message}`;
-  logBox.scrollTop = logBox.scrollHeight;
+function addLog(text) {
+  els.logBox.textContent += `\n[${ts()}] ${text}`;
+  els.logBox.scrollTop = els.logBox.scrollHeight;
 }
 
-function setBadge(type, text) {
-  statusBadge.className = `badge ${type}`;
-  statusBadge.textContent = text;
+function setPill(mode, text) {
+  els.statusPill.className = `pill ${mode}`;
+  els.statusPill.textContent = text;
 }
 
-function setBusy(isBusy) {
-  Object.values(buttons).forEach((btn) => {
-    btn.disabled = isBusy;
-  });
+function setBusy(busy) {
+  els.saveBtn.disabled = busy;
+  els.refreshBtn.disabled = busy;
 }
 
-function getValue(id) {
-  const el = document.getElementById(id);
-  return (el?.value || "").trim();
-}
+function normalizeDouyinUrl(raw) {
+  const value = (raw || "").trim();
+  if (!value) return "";
 
-function setValue(id, value) {
-  const el = document.getElementById(id);
-  if (el && value) {
-    el.value = value;
+  if (/^https?:\/\//i.test(value)) {
+    return value;
   }
+
+  return `https://www.douyin.com/user/${encodeURIComponent(value)}`;
 }
 
-function persistForm() {
-  const payload = {};
-  savedFields.forEach((key) => {
-    payload[key] = getValue(key);
-  });
-  localStorage.setItem("douyin-control-form", JSON.stringify(payload));
-}
-
-function restoreForm() {
-  try {
-    const raw = localStorage.getItem("douyin-control-form");
-    if (!raw) return;
-    const data = JSON.parse(raw);
-    savedFields.forEach((key) => setValue(key, data[key]));
-  } catch (err) {
-    addLog(`读取本地表单失败: ${String(err)}`);
-  }
-}
-
-function readAuthConfig() {
-  const config = {
-    token: getValue("githubToken"),
-    owner: getValue("repoOwner"),
-    repo: getValue("repoName"),
-  };
-
-  const required = [
-    ["token", config.token],
-    ["owner", config.owner],
-    ["repo", config.repo],
+function pickVideoId(content) {
+  const patterns = [
+    /\/video\/(\d{8,24})/g,
+    /"aweme_id"\s*:\s*"?(\d{8,24})"?/g,
+    /awemeId\s*[:=]\s*"?(\d{8,24})"?/g,
   ];
 
-  const missing = required.filter(([, value]) => !value).map(([name]) => name);
-  if (missing.length) {
-    throw new Error(`缺少字段: ${missing.join(", ")}`);
+  for (const pattern of patterns) {
+    const match = pattern.exec(content);
+    if (match && match[1]) {
+      return match[1];
+    }
   }
 
-  return config;
+  return "";
 }
 
-function readFullConfig() {
-  const auth = readAuthConfig();
-  const secrets = {
-    DOUYIN_USER_URL: getValue("douyinUrl"),
-    SMTP_HOST: getValue("smtpHost"),
-    SMTP_PORT: getValue("smtpPort"),
-    SMTP_USER: getValue("smtpUser"),
-    SMTP_PASSWORD: getValue("smtpPassword"),
-    EMAIL_FROM: getValue("emailFrom"),
-    EMAIL_TO: getValue("emailTo"),
-    TIMEZONE: getValue("timezone") || "Asia/Shanghai",
-    MAIL_SUBJECT_PREFIX: getValue("subjectPrefix") || "[抖音催更]",
-    DOUYIN_COOKIES_B64: getValue("cookiesB64"),
-  };
+async function fetchLatestVideoId(douyinUrl) {
+  const stripped = douyinUrl.replace(/^https?:\/\//i, "");
+  const proxyUrl = `https://r.jina.ai/http://${stripped}`;
 
-  const required = [
-    ["DOUYIN_USER_URL", secrets.DOUYIN_USER_URL],
-    ["SMTP_HOST", secrets.SMTP_HOST],
-    ["SMTP_PORT", secrets.SMTP_PORT],
-    ["SMTP_USER", secrets.SMTP_USER],
-    ["SMTP_PASSWORD", secrets.SMTP_PASSWORD],
-    ["EMAIL_FROM", secrets.EMAIL_FROM],
-    ["EMAIL_TO", secrets.EMAIL_TO],
-  ];
-
-  const missing = required.filter(([, value]) => !value).map(([name]) => name);
-  if (missing.length) {
-    throw new Error(`缺少字段: ${missing.join(", ")}`);
-  }
-
-  return { ...auth, secrets };
-}
-
-async function githubApi(path, token, options = {}) {
-  const res = await fetch(`https://api.github.com${path}`, {
-    ...options,
+  const res = await fetch(proxyUrl, {
+    method: "GET",
     headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      ...(options.headers || {}),
+      Accept: "text/plain, text/markdown;q=0.9, */*;q=0.8",
     },
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`${res.status} ${res.statusText}: ${text}`);
+    throw new Error(`抓取失败: ${res.status}`);
   }
 
-  if (res.status === 204) {
+  const text = await res.text();
+  const videoId = pickVideoId(text);
+
+  if (!videoId) {
+    throw new Error("未识别到视频 ID，建议改用完整抖音主页链接再试");
+  }
+
+  return {
+    videoId,
+    proxyUrl,
+  };
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
     return null;
   }
-
-  return res.json();
 }
 
-async function encryptSecret(secretValue, base64PublicKey) {
-  await sodium.ready;
-  const keyBytes = sodium.from_base64(
-    base64PublicKey,
-    sodium.base64_variants.ORIGINAL
-  );
-  const valueBytes = sodium.from_string(secretValue);
-  const encryptedBytes = sodium.crypto_box_seal(valueBytes, keyBytes);
-  return sodium.to_base64(encryptedBytes, sodium.base64_variants.ORIGINAL);
+function saveState(state) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-async function saveAllSecrets() {
-  const { token, owner, repo, secrets } = readFullConfig();
-  addLog("读取仓库公钥...");
-
-  const keyResp = await githubApi(
-    `/repos/${owner}/${repo}/actions/secrets/public-key`,
-    token
-  );
-
-  const allSecrets = Object.entries(secrets).filter(([, value]) => Boolean(value));
-
-  for (const [name, value] of allSecrets) {
-    addLog(`写入 secret: ${name}`);
-    const encryptedValue = await encryptSecret(value, keyResp.key);
-    await githubApi(`/repos/${owner}/${repo}/actions/secrets/${name}`, token, {
-      method: "PUT",
-      body: JSON.stringify({
-        encrypted_value: encryptedValue,
-        key_id: keyResp.key_id,
-      }),
-    });
-  }
-
-  persistForm();
-  addLog(`Secrets 写入完成，共 ${allSecrets.length} 项。`);
+function formatAgo(iso) {
+  if (!iso) return "-";
+  return new Date(iso).toLocaleString("zh-CN", { hour12: false });
 }
 
-async function triggerRun() {
-  const { token, owner, repo } = readAuthConfig();
-  addLog("触发工作流执行...");
-
-  await githubApi(
-    `/repos/${owner}/${repo}/actions/workflows/${workflowFile}/dispatches`,
-    token,
-    {
-      method: "POST",
-      body: JSON.stringify({ ref: "main" }),
-    }
-  );
-
-  addLog("触发成功，正在拉取最新运行状态...");
-  await refreshLatestRun();
-}
-
-function prettyTime(iso) {
-  if (!iso) return "未知";
-  try {
-    return new Date(iso).toLocaleString("zh-CN", { hour12: false });
-  } catch {
-    return iso;
-  }
-}
-
-function renderLatestRun(run, owner, repo) {
-  if (!run) {
-    latestRun.className = "latest-run empty";
-    latestRun.textContent = "还没有读取到运行记录。";
+function render(state) {
+  if (!state) {
+    els.baselineVideo.textContent = "未保存";
+    els.baselineTime.textContent = "-";
+    els.latestResult.textContent = "未检测";
+    els.latestTime.textContent = "-";
+    els.emailView.textContent = "-";
+    setPill("idle", "待初始化");
     return;
   }
 
-  const repoUrl = `https://github.com/${owner}/${repo}`;
-  const conclusion = run.conclusion || "进行中";
+  els.douyinInput.value = state.douyinInput || "";
+  els.noticeEmail.value = state.noticeEmail || "";
+  els.breachHours.value = String(state.breachHours || 24);
 
-  latestRun.className = "latest-run";
-  latestRun.innerHTML = `
-    <p class="run-title">${run.name || "Douyin Daily Reminder"}</p>
-    <div class="run-meta">
-      <span>状态: ${run.status}</span>
-      <span>结论: ${conclusion}</span>
-      <span>时间: ${prettyTime(run.created_at)}</span>
-      <a href="${run.html_url}" target="_blank" rel="noreferrer">打开本次运行</a>
-      <a href="${repoUrl}/actions" target="_blank" rel="noreferrer">打开全部运行</a>
-    </div>
-  `;
-}
+  els.baselineVideo.textContent = state.baselineVideoId || "未识别";
+  els.baselineTime.textContent = formatAgo(state.baselineSavedAt);
 
-async function refreshLatestRun() {
-  const { token, owner, repo } = readAuthConfig();
-  addLog("查询最新运行记录...");
+  els.latestResult.textContent = state.latestResultText || "未检测";
+  els.latestTime.textContent = formatAgo(state.latestCheckedAt);
+  els.emailView.textContent = state.noticeEmail || "-";
 
-  const payload = await githubApi(
-    `/repos/${owner}/${repo}/actions/runs?per_page=20`,
-    token
-  );
-
-  const run = (payload.workflow_runs || []).find(
-    (item) => item.name === "Douyin Daily Reminder"
-  );
-
-  renderLatestRun(run, owner, repo);
-
-  if (!run) {
-    setBadge("idle", "暂无记录");
-    addLog("没有找到 Douyin Daily Reminder 的运行记录。");
-    return;
-  }
-
-  if (run.status !== "completed") {
-    setBadge("loading", `运行中: ${run.status}`);
-  } else if (run.conclusion === "success") {
-    setBadge("success", "最近运行成功");
+  const status = state.lastStatus || "idle";
+  if (status === "ok") {
+    setPill("ok", "状态正常");
+  } else if (status === "warn") {
+    setPill("warn", "发现违约");
+  } else if (status === "load") {
+    setPill("load", "检测中");
   } else {
-    setBadge("error", `最近运行失败: ${run.conclusion}`);
+    setPill("idle", "待初始化");
   }
-
-  addLog(`最新运行: ${run.status}/${run.conclusion || "pending"}`);
 }
 
-async function runTask(taskName, fn) {
+function readForm() {
+  const douyinInput = (els.douyinInput.value || "").trim();
+  const noticeEmail = (els.noticeEmail.value || "").trim();
+  const breachHours = Number(els.breachHours.value || 24);
+
+  if (!douyinInput) {
+    throw new Error("请先输入抖音号或抖音主页链接");
+  }
+  if (!noticeEmail) {
+    throw new Error("请先输入通知邮箱");
+  }
+  if (!Number.isFinite(breachHours) || breachHours <= 0) {
+    throw new Error("违约阈值必须大于 0 小时");
+  }
+
+  return {
+    douyinInput,
+    noticeEmail,
+    breachHours,
+    douyinUrl: normalizeDouyinUrl(douyinInput),
+  };
+}
+
+function buildMailto(state, reason) {
+  const subject = encodeURIComponent(`[抖音违约提醒] ${new Date().toLocaleDateString("zh-CN")}`);
+  const body = encodeURIComponent(
+    `触发原因: ${reason}\n抖音: ${state.douyinInput}\n基准视频: ${state.baselineVideoId || "未识别"}\n最近检测时间: ${formatAgo(state.latestCheckedAt)}\n` +
+      `请尽快更新内容。`
+  );
+  return `mailto:${state.noticeEmail}?subject=${subject}&body=${body}`;
+}
+
+async function trySendNoticeByFormSubmit(state, reason) {
+  const endpoint = `https://formsubmit.co/ajax/${encodeURIComponent(state.noticeEmail)}`;
+  const payload = {
+    _subject: `[抖音违约提醒] ${new Date().toLocaleDateString("zh-CN")}`,
+    name: "抖音违约监测台",
+    message: `触发原因: ${reason}\n抖音: ${state.douyinInput}\n基准视频: ${state.baselineVideoId || "未识别"}\n最近检测时间: ${formatAgo(state.latestCheckedAt)}`,
+    _template: "box",
+    _captcha: "false",
+  };
+
   try {
-    setBusy(true);
-    setBadge("loading", `${taskName}中`);
-    await fn();
-    if (taskName.includes("刷新")) {
-      return;
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success === true || data.success === "true")) {
+      addLog("已尝试发送违约邮件（FormSubmit）。");
+      return true;
     }
-    setBadge("success", `${taskName}成功`);
+
+    addLog(`自动邮件通道未确认成功: ${data.message || res.status}`);
+    return false;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    setBadge("error", `${taskName}失败`);
-    addLog(`${taskName}失败: ${message}`);
+    addLog(`自动邮件通道异常: ${String(err)}`);
+    return false;
+  }
+}
+
+async function handleSave() {
+  const input = readForm();
+  setBusy(true);
+  setPill("load", "保存中");
+  addLog(`开始保存基准状态: ${input.douyinUrl}`);
+
+  try {
+    const latest = await fetchLatestVideoId(input.douyinUrl);
+
+    const state = {
+      ...input,
+      baselineVideoId: latest.videoId,
+      baselineSavedAt: new Date().toISOString(),
+      latestVideoId: latest.videoId,
+      latestCheckedAt: new Date().toISOString(),
+      latestResultText: "已保存基准",
+      lastStatus: "ok",
+      lastNoticeAt: null,
+    };
+
+    saveState(state);
+    render(state);
+    addLog(`保存成功。基准视频 ID: ${latest.videoId}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    setPill("warn", "保存失败");
+    addLog(`保存失败: ${msg}`);
   } finally {
     setBusy(false);
   }
 }
 
-buttons.save.addEventListener("click", () => runTask("保存 Secrets", saveAllSecrets));
-buttons.run.addEventListener("click", () => runTask("触发检测", triggerRun));
-buttons.saveAndRun.addEventListener("click", () =>
-  runTask("保存并运行", async () => {
-    await saveAllSecrets();
-    await triggerRun();
-  })
-);
-buttons.refresh.addEventListener("click", () => runTask("刷新状态", refreshLatestRun));
+async function handleRefresh() {
+  const existing = loadState();
+  if (!existing) {
+    addLog("请先点击“保存状态”建立基准。\n");
+    return;
+  }
 
-formEl.addEventListener("input", () => {
-  persistForm();
+  setBusy(true);
+  setPill("load", "刷新中");
+  addLog("开始刷新状态...");
+
+  try {
+    const latest = await fetchLatestVideoId(existing.douyinUrl || normalizeDouyinUrl(existing.douyinInput));
+    const nowIso = new Date().toISOString();
+
+    const elapsedMs = new Date(nowIso).getTime() - new Date(existing.baselineSavedAt || nowIso).getTime();
+    const elapsedHours = elapsedMs / (1000 * 60 * 60);
+    const threshold = Number(existing.breachHours || 24);
+
+    const noUpdate = latest.videoId === existing.baselineVideoId;
+    const isBreach = noUpdate && elapsedHours >= threshold;
+
+    const next = {
+      ...existing,
+      latestVideoId: latest.videoId,
+      latestCheckedAt: nowIso,
+      lastStatus: isBreach ? "warn" : "ok",
+      latestResultText: isBreach
+        ? `违约：${threshold} 小时内未更新`
+        : noUpdate
+        ? `未违约：仍未更新，但未到 ${threshold} 小时阈值`
+        : "状态正常：检测到新视频",
+    };
+
+    if (!noUpdate) {
+      next.baselineVideoId = latest.videoId;
+      next.baselineSavedAt = nowIso;
+      addLog(`检测到新视频，基准已自动更新为 ${latest.videoId}`);
+    }
+
+    if (isBreach) {
+      const today = nowIso.slice(0, 10);
+      const lastNoticeDay = (existing.lastNoticeAt || "").slice(0, 10);
+
+      if (today !== lastNoticeDay) {
+        const reason = `${threshold} 小时未更新`; 
+        const sent = await trySendNoticeByFormSubmit(next, reason);
+        if (!sent) {
+          const mailto = buildMailto(next, reason);
+          window.open(mailto, "_blank");
+          addLog("已打开本地邮件客户端作为兜底发送方式。");
+        }
+        next.lastNoticeAt = nowIso;
+      } else {
+        addLog("今天已发送过违约通知，跳过重复发送。");
+      }
+    }
+
+    saveState(next);
+    render(next);
+    addLog(`刷新完成: ${next.latestResultText}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    setPill("warn", "刷新失败");
+    addLog(`刷新失败: ${msg}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+els.saveBtn.addEventListener("click", handleSave);
+els.refreshBtn.addEventListener("click", handleRefresh);
+els.form.addEventListener("input", () => {
+  const state = loadState() || {};
+  state.douyinInput = els.douyinInput.value.trim();
+  state.noticeEmail = els.noticeEmail.value.trim();
+  state.breachHours = Number(els.breachHours.value || 24);
+  saveState(state);
+  render(state);
 });
 
-restoreForm();
-addLog("已加载本地表单（不含 Token 与授权码）。");
+render(loadState());
+addLog("你可以先输入抖音号与邮箱，然后点击“保存状态”。");
