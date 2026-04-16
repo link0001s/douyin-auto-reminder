@@ -1,4 +1,5 @@
 const STORAGE_KEY = "douyin-breach-monitor-v4";
+const CLOUD_STATE_URL = "https://raw.githubusercontent.com/link0001s/douyin-auto-reminder/main/state.json";
 
 const els = {
   form: document.getElementById("monitorForm"),
@@ -40,6 +41,49 @@ function setBusy(busy) {
   const state = loadState();
   els.saveBtn.disabled = busy || isConfigLocked(state);
   els.refreshBtn.disabled = busy;
+}
+
+async function fetchCloudState() {
+  const cloudUrl = `${CLOUD_STATE_URL}?t=${Date.now()}`;
+  const res = await fetchWithTimeout(
+    cloudUrl,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    },
+    10000
+  );
+
+  if (res.status === 404) {
+    throw new Error("云端状态还不存在，请先等待工作流至少成功运行一次。");
+  }
+  if (!res.ok) {
+    throw new Error(`读取云端状态失败（HTTP ${res.status}）`);
+  }
+
+  const payload = await res.json().catch(() => null);
+  if (!payload || typeof payload !== "object") {
+    throw new Error("云端状态格式无效");
+  }
+  return payload;
+}
+
+function buildCloudResultText(cloudState) {
+  const checkedAt = formatTs(cloudState?.last_checked_at || "");
+  const result = String(cloudState?.cloud_result || "");
+
+  if (result === "new_video") {
+    return `云端检测：已更新（${checkedAt}）`;
+  }
+  if (result === "no_update") {
+    return `云端检测：未更新，已发催更邮件（${checkedAt}）`;
+  }
+  if (result === "initialized") {
+    return `云端已初始化（${checkedAt}）`;
+  }
+  return `云端最近检测时间：${checkedAt}`;
 }
 
 const FETCH_PROXIES = [
@@ -159,7 +203,11 @@ function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw);
+    const state = JSON.parse(raw);
+    if (state && typeof state === "object" && !Object.prototype.hasOwnProperty.call(state, "cloudOnly")) {
+      state.cloudOnly = true;
+    }
+    return state;
   } catch {
     return null;
   }
@@ -442,7 +490,7 @@ function render(state) {
     setPill("idle", "待初始化");
     els.cycleView.textContent = "30天30条";
     els.dueTime.textContent = "到期时间：-";
-    els.progressCount.textContent = "0 / 30";
+    els.progressCount.textContent = "未检测";
     els.latestTime.textContent = "最近检测：-";
     els.emailView.textContent = "-";
     els.latestResult.textContent = "状态：待初始化";
@@ -463,7 +511,11 @@ function render(state) {
 
   els.cycleView.textContent = planLabel(state.planDays || 30);
   els.dueTime.textContent = `到期时间：${formatTs(state.dueAt)}`;
-  els.progressCount.textContent = `${state.lastKnownNewCount || 0} / ${state.requiredVideos || state.planDays || 30}`;
+  if (state.cloudOnly) {
+    els.progressCount.textContent = state.lastKnownNewCount ? "已更新" : "未更新";
+  } else {
+    els.progressCount.textContent = `${state.lastKnownNewCount || 0} / ${state.requiredVideos || state.planDays || 30}`;
+  }
   els.latestTime.textContent = `最近检测：${formatTs(state.lastManualCheckAt || state.lastAutoCheckAt)}`;
   els.emailView.textContent = state.noticeEmail || "-";
   els.latestResult.textContent = `状态：${state.latestResultText || "待初始化"}`;
@@ -540,16 +592,14 @@ async function handleSave() {
   const input = readForm();
   setBusy(true);
   setPill("load", "保存中");
-  addLog(`初始化周期：${planLabel(input.planDays)}，开始抓取基准视频...`);
+  addLog(`初始化周期：${planLabel(input.planDays)}（云端版）`);
   addLog(`识别到检测链接：${input.douyinUrl}`);
 
   try {
-    const ids = await fetchVideoIds(input.douyinUrl);
     const nowIso = new Date().toISOString();
-
     let state = {
       ...input,
-      baselineVideoIds: ids,
+      baselineVideoIds: [],
       cycleStartAt: nowIso,
       dueAt: nowIso,
       lastKnownNewCount: 0,
@@ -558,14 +608,15 @@ async function handleSave() {
       noticeCycleStartAt: null,
       lastNoticeAt: null,
       configLocked: true,
+      cloudOnly: true,
       latestResultText: "初始化完成",
       lastStatus: "ok",
     };
 
-    state = startCycleFrom(state, nowIso, ids);
+    state = startCycleFrom(state, nowIso, []);
     saveState(state);
     render(state);
-    addLog(`保存成功，基准样本 ${ids.length} 条。到期后请点“检测”。`);
+    addLog("保存成功（云端版）。不再本地抓抖音，点击“点检测”会同步云端状态。");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     setPill("warn", "保存失败");
@@ -581,50 +632,43 @@ async function handleManualRefresh() {
     addLog("请先点击“保存状态”初始化周期。\n");
     return;
   }
-  const resolvedDouyinUrl = normalizeDouyinUrl(state.douyinInput || state.douyinUrl || "");
 
   setBusy(true);
   setPill("load", "检测中");
-  addLog("开始手动检测...");
-  addLog(`本次使用链接：${resolvedDouyinUrl}`);
+  addLog("开始手动检测（云端状态同步）...");
 
   try {
+    const cloud = await fetchCloudState();
     const nowIso = new Date().toISOString();
-    const ids = await fetchVideoIds(resolvedDouyinUrl);
-    const newCount = calcNewCount(ids, state.baselineVideoIds || []);
+    const cloudResultText = buildCloudResultText(cloud);
+    const cloudResult = String(cloud?.cloud_result || "");
 
     let next = {
       ...state,
-      douyinUrl: resolvedDouyinUrl,
+      cloudOnly: true,
       lastManualCheckAt: nowIso,
-      lastAutoCheckAt: nowIso,
-      lastKnownNewCount: newCount,
+      lastAutoCheckAt: cloud?.last_checked_at || nowIso,
+      lastKnownNewCount: cloudResult === "new_video" ? 1 : 0,
+      latestResultText: cloudResultText,
+      lastStatus: cloudResult === "no_update" ? "warn" : "ok",
     };
 
-    const dueReached = new Date(nowIso) >= new Date(state.dueAt);
-
-    if (!dueReached) {
-      next.lastStatus = "ok";
-      next.latestResultText = `未到期，当前新增 ${newCount}/${state.requiredVideos}`;
-      saveState(next);
-      render(next);
-      addLog(next.latestResultText);
-      return;
+    if (cloud?.account_url) {
+      const cloudAccount = normalizeDouyinUrl(String(cloud.account_url));
+      const localAccount = normalizeDouyinUrl(state.douyinInput || state.douyinUrl || "");
+      if (cloudAccount && localAccount && cloudAccount !== localAccount) {
+        next = {
+          ...next,
+          lastStatus: "warn",
+          latestResultText: "云端监控账号与当前输入不一致，请检查云端配置。",
+        };
+        addLog(`云端账号：${cloudAccount}`);
+      }
     }
 
-    if (newCount >= state.requiredVideos) {
-      addLog(`到期检测通过：${newCount}/${state.requiredVideos}，自动开启下一周期。`);
-      next = startCycleFrom(next, nowIso, ids);
-      saveState(next);
-      render(next);
-      return;
-    }
-
-    const reason = `违约：到期检测仅 ${newCount}/${state.requiredVideos}`;
-    next = await triggerBreachNotice(next, reason, true);
     saveState(next);
     render(next);
-    addLog(reason);
+    addLog(next.latestResultText);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     setPill("warn", "检测失败");
@@ -637,6 +681,7 @@ async function handleManualRefresh() {
 async function autoCheckNoManualDetection() {
   const state = loadState();
   if (!state || !state.dueAt || !state.noticeEmail) return;
+  if (state.cloudOnly) return;
 
   const nowIso = new Date().toISOString();
   const dueReached = new Date(nowIso) >= new Date(state.dueAt);
@@ -679,4 +724,4 @@ els.form.addEventListener("input", () => {
 render(loadState());
 autoCheckNoManualDetection();
 setInterval(autoCheckNoManualDetection, 60 * 1000);
-addLog("规则已启用：7天7条 / 15天15条 / 30天30条。到期未点检测也会触发提醒。");
+addLog("云端模式已启用：保存不再本地抓抖音，点检测会同步云端“已更新/未更新”状态。");

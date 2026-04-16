@@ -276,6 +276,7 @@ def main() -> int:
 
     state["account_url"] = config.douyin_user_url
     state["last_checked_at"] = now.isoformat()
+    state["cloud_result"] = "unknown"
 
     if latest_video is None:
         raise RuntimeError("本次未抓取到视频信息，可能是网络、风控或 cookies 失效。")
@@ -288,6 +289,7 @@ def main() -> int:
             latest_video["published_at"] if latest_video else None
         )
         state["last_reminder_date"] = None
+        state["cloud_result"] = "initialized"
         save_state(config.state_file, state)
         print("首次运行：已初始化状态，不发送催更邮件。")
         return 0
@@ -298,11 +300,13 @@ def main() -> int:
         state["last_seen_url"] = latest_video["webpage_url"]
         state["last_seen_published_at"] = latest_video["published_at"]
         state["last_reminder_date"] = None
+        state["cloud_result"] = "new_video"
         save_state(config.state_file, state)
         print("检测到新视频，已更新状态，不发送催更邮件。")
         return 0
 
     if state.get("last_reminder_date") == today:
+        state["cloud_result"] = "no_update"
         print("今天已发送过催更邮件，跳过。")
         save_state(config.state_file, state)
         return 0
@@ -324,6 +328,7 @@ def main() -> int:
 
     send_email(config, subject, body)
     state["last_reminder_date"] = today
+    state["cloud_result"] = "no_update"
     save_state(config.state_file, state)
     print("未检测到更新，已发送催更邮件。")
     return 0
