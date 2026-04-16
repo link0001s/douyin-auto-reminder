@@ -35,7 +35,9 @@ function setPill(mode, text) {
 }
 
 function setBusy(busy) {
-  els.saveBtn.disabled = busy;
+  els.saveBtn.dataset.busy = busy ? "1" : "0";
+  const state = loadState();
+  els.saveBtn.disabled = busy || isConfigLocked(state);
   els.refreshBtn.disabled = busy;
 }
 
@@ -53,6 +55,17 @@ function formatTs(iso) {
 
 function planLabel(days) {
   return `${days}天${days}条`;
+}
+
+function isConfigLocked(state) {
+  if (!state || !state.configLocked || !state.dueAt) return false;
+  return new Date() < new Date(state.dueAt);
+}
+
+function applyLockUi(locked) {
+  els.douyinInput.disabled = locked;
+  els.noticeEmail.disabled = locked;
+  els.rulePlan.disabled = locked;
 }
 
 function saveState(state) {
@@ -203,13 +216,19 @@ function render(state) {
     els.latestTime.textContent = "最近检测：-";
     els.emailView.textContent = "-";
     els.latestResult.textContent = "状态：待初始化";
+    applyLockUi(false);
+    els.saveBtn.disabled = false;
     hideAlert();
     return;
   }
 
+  const locked = isConfigLocked(state);
+
   els.douyinInput.value = state.douyinInput || "";
   els.noticeEmail.value = state.noticeEmail || "";
   els.rulePlan.value = String(state.planDays || 30);
+  applyLockUi(locked);
+  els.saveBtn.disabled = locked || els.saveBtn.dataset.busy === "1";
 
   els.cycleView.textContent = planLabel(state.planDays || 30);
   els.dueTime.textContent = `到期时间：${formatTs(state.dueAt)}`;
@@ -219,7 +238,9 @@ function render(state) {
   els.latestResult.textContent = `状态：${state.latestResultText || "待初始化"}`;
 
   const mode = state.lastStatus || "idle";
-  if (mode === "ok") setPill("ok", "状态正常");
+  if (locked && mode !== "warn") {
+    setPill("load", "配置已锁定");
+  } else if (mode === "ok") setPill("ok", "状态正常");
   else if (mode === "warn") setPill("warn", "发现违约");
   else if (mode === "load") setPill("load", "检测中");
   else setPill("idle", "待初始化");
@@ -252,6 +273,7 @@ function startCycleFrom(state, nowIso, baselineIds) {
     lastKnownNewCount: 0,
     lastManualCheckAt: null,
     noticeCycleStartAt: null,
+    configLocked: true,
     latestResultText: `已保存新周期：${planLabel(state.planDays)}`,
     lastStatus: "ok",
   };
@@ -277,6 +299,13 @@ async function triggerBreachNotice(state, reason, byManual) {
 }
 
 async function handleSave() {
+  const prev = loadState();
+  if (isConfigLocked(prev)) {
+    addLog("当前周期未到期，配置已锁定，暂不可修改。");
+    render(prev);
+    return;
+  }
+
   const input = readForm();
   setBusy(true);
   setPill("load", "保存中");
@@ -296,6 +325,7 @@ async function handleSave() {
       lastAutoCheckAt: nowIso,
       noticeCycleStartAt: null,
       lastNoticeAt: null,
+      configLocked: true,
       latestResultText: "初始化完成",
       lastStatus: "ok",
     };
@@ -399,6 +429,10 @@ els.saveBtn.addEventListener("click", handleSave);
 els.refreshBtn.addEventListener("click", handleManualRefresh);
 els.form.addEventListener("input", () => {
   const current = loadState() || {};
+  if (isConfigLocked(current)) {
+    render(current);
+    return;
+  }
   current.douyinInput = (els.douyinInput.value || "").trim();
   current.noticeEmail = (els.noticeEmail.value || "").trim();
   current.planDays = Number(els.rulePlan.value || 30);
