@@ -225,6 +225,20 @@ h1 {
   filter: drop-shadow(0 0 10px rgba(214, 227, 255, 0.3));
 }
 
+.side-chip.unlock-chip {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.side-chip.unlock-chip svg {
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+
+.side-chip.unlock-chip:hover svg {
+  transform: scale(1.08);
+  filter: drop-shadow(0 0 12px rgba(214, 227, 255, 0.46));
+}
+
 .side-stack .side-chip:nth-of-type(1) {
   transform: translateX(-8px) rotate(-6deg);
 }

@@ -24,6 +24,7 @@ const els = {
   alertText: document.getElementById("alertText"),
   alertMailLink: document.getElementById("alertMailLink"),
   logBox: document.getElementById("logBox"),
+  wolfUnlockChip: document.getElementById("wolfUnlockChip"),
 };
 
 let unlockTapCount = 0;
@@ -311,6 +312,27 @@ function resetUnlockTapProgress() {
   unlockTapDeadline = 0;
 }
 
+function unlockConfigLock(successText) {
+  const state = loadState();
+  if (!isConfigLocked(state)) {
+    resetUnlockTapProgress();
+    return false;
+  }
+
+  const unlockedState = {
+    ...state,
+    configLocked: false,
+    latestResultText: "已解除锁定，可重新保存状态",
+    lastStatus: "ok",
+  };
+
+  saveState(unlockedState);
+  render(unlockedState);
+  addLog(successText || "配置已解除锁定");
+  resetUnlockTapProgress();
+  return true;
+}
+
 function handleStatusPillUnlockTap() {
   const state = loadState();
   if (!isConfigLocked(state)) {
@@ -332,17 +354,11 @@ function handleStatusPillUnlockTap() {
     return;
   }
 
-  const unlockedState = {
-    ...state,
-    configLocked: false,
-    latestResultText: "已解除锁定，可重新保存状态",
-    lastStatus: "ok",
-  };
+  unlockConfigLock("已连点5次，配置已解除锁定");
+}
 
-  saveState(unlockedState);
-  render(unlockedState);
-  addLog("已连点5次，配置已解除锁定");
-  resetUnlockTapProgress();
+function handleWolfUnlockTap() {
+  unlockConfigLock("点击狼头，配置已解除锁定");
 }
 
 function loadState() {
@@ -869,6 +885,9 @@ async function autoCheckNoManualDetection() {
 els.saveBtn.addEventListener("click", handleSave);
 els.refreshBtn.addEventListener("click", handleManualRefresh);
 els.statusPill.addEventListener("click", handleStatusPillUnlockTap);
+if (els.wolfUnlockChip) {
+  els.wolfUnlockChip.addEventListener("click", handleWolfUnlockTap);
+}
 els.form.addEventListener("input", () => {
   const current = loadState() || {};
   if (isConfigLocked(current)) {
