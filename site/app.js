@@ -1,5 +1,7 @@
 const STORAGE_KEY = "douyin-breach-monitor-v4";
 const CLOUD_STATE_URL = "https://raw.githubusercontent.com/link0001s/douyin-auto-reminder/main/state.json";
+const LEGACY_EMAIL = "2879154754@qq.com";
+const MIGRATED_EMAIL = "15299563429@163.com";
 
 const els = {
   form: document.getElementById("monitorForm"),
@@ -297,6 +299,10 @@ function loadState() {
     const state = JSON.parse(raw);
     if (state && typeof state === "object" && !Object.prototype.hasOwnProperty.call(state, "cloudOnly")) {
       state.cloudOnly = true;
+    }
+    if (state && typeof state === "object" && state.noticeEmail === LEGACY_EMAIL) {
+      state.noticeEmail = MIGRATED_EMAIL;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     }
     return state;
   } catch {
