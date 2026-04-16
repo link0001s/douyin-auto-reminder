@@ -36,6 +36,7 @@ function setPill(mode, text) {
 
 function setBusy(busy) {
   els.saveBtn.dataset.busy = busy ? "1" : "0";
+  els.refreshBtn.dataset.busy = busy ? "1" : "0";
   const state = loadState();
   els.saveBtn.disabled = busy || isConfigLocked(state);
   els.refreshBtn.disabled = busy;
@@ -229,6 +230,7 @@ function render(state) {
   els.rulePlan.value = String(state.planDays || 30);
   applyLockUi(locked);
   els.saveBtn.disabled = locked || els.saveBtn.dataset.busy === "1";
+  els.refreshBtn.disabled = els.refreshBtn.dataset.busy === "1";
 
   els.cycleView.textContent = planLabel(state.planDays || 30);
   els.dueTime.textContent = `到期时间：${formatTs(state.dueAt)}`;
