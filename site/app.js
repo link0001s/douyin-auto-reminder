@@ -57,7 +57,12 @@ async function fetchCloudState() {
   );
 
   if (res.status === 404) {
-    throw new Error("云端状态还不存在，请先等待工作流至少成功运行一次。");
+    return {
+      cloud_result: "not_initialized",
+      last_checked_at: null,
+      account_url: "",
+      __not_ready: true,
+    };
   }
   if (!res.ok) {
     throw new Error(`读取云端状态失败（HTTP ${res.status}）`);
@@ -82,6 +87,9 @@ function buildCloudResultText(cloudState) {
   }
   if (result === "initialized") {
     return `云端已初始化（${checkedAt}）`;
+  }
+  if (result === "not_initialized") {
+    return "云端未初始化，请先在 GitHub Actions 运行一次。";
   }
   return `云端最近检测时间：${checkedAt}`;
 }
@@ -652,6 +660,14 @@ async function handleManualRefresh() {
       latestResultText: cloudResultText,
       lastStatus: cloudResult === "no_update" ? "warn" : "ok",
     };
+
+    if (cloud.__not_ready) {
+      next = {
+        ...next,
+        lastStatus: "ok",
+      };
+      addLog("云端状态文件还未生成，已进入等待模式。配置好 Secrets 后到 Actions 手动 Run 一次即可。");
+    }
 
     if (cloud?.account_url) {
       const cloudAccount = normalizeDouyinUrl(String(cloud.account_url));
