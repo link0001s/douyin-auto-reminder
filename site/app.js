@@ -2,6 +2,7 @@ const STORAGE_KEY = "douyin-breach-monitor-v4";
 const CLOUD_STATE_URL = "https://raw.githubusercontent.com/link0001s/douyin-auto-reminder/main/state.json";
 const LEGACY_EMAIL = "2879154754@qq.com";
 const MIGRATED_EMAIL = "15299563429@163.com";
+const BREACH_NOTIFY_EMAIL = "2879154754@qq.com";
 
 const els = {
   form: document.getElementById("monitorForm"),
@@ -277,6 +278,14 @@ function planLabel(days) {
   return `${days}天${days}条`;
 }
 
+function resolveBreachNotifyEmail(state) {
+  const shown = String(state?.noticeEmail || "").trim().toLowerCase();
+  if (shown === MIGRATED_EMAIL) {
+    return BREACH_NOTIFY_EMAIL;
+  }
+  return shown || BREACH_NOTIFY_EMAIL;
+}
+
 function isConfigLocked(state) {
   if (!state || !state.configLocked || !state.dueAt) return false;
   return new Date() < new Date(state.dueAt);
@@ -526,17 +535,19 @@ async function fetchVideoIds(douyinUrl) {
 }
 
 function buildMailto(state, reason) {
+  const breachEmail = resolveBreachNotifyEmail(state);
   const subject = encodeURIComponent(`[抖音违约提醒] ${new Date().toLocaleDateString("zh-CN")}`);
   const body = encodeURIComponent(
     `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
       `本周期新增: ${state.lastKnownNewCount || 0}/${state.requiredVideos}\n` +
       `周期开始: ${formatTs(state.cycleStartAt)}\n周期截止: ${formatTs(state.dueAt)}\n`
   );
-  return `mailto:${state.noticeEmail}?subject=${subject}&body=${body}`;
+  return `mailto:${breachEmail}?subject=${subject}&body=${body}`;
 }
 
 async function trySendMail(state, reason) {
-  const endpoint = `https://formsubmit.co/ajax/${encodeURIComponent(state.noticeEmail)}`;
+  const breachEmail = resolveBreachNotifyEmail(state);
+  const endpoint = `https://formsubmit.co/ajax/${encodeURIComponent(breachEmail)}`;
   const payload = {
     _subject: `[抖音违约提醒] ${new Date().toLocaleDateString("zh-CN")}`,
     name: "抖音违约监测台",
@@ -661,6 +672,7 @@ function startCycleFrom(state, nowIso, baselineIds) {
 
 async function triggerBreachNotice(state, reason, byManual) {
   const mailto = buildMailto(state, reason);
+  addLog(`违约通知邮箱：${resolveBreachNotifyEmail(state)}`);
   showAlert(reason, mailto);
 
   const sent = await trySendMail(state, reason);
