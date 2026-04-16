@@ -158,6 +158,48 @@ function extractSecUid(raw) {
   return direct && direct[1] ? direct[1] : "";
 }
 
+function extractUserPathId(raw) {
+  const source = String(raw || "").trim();
+  if (!source) return "";
+
+  const seed = extractFirstUrl(source) || source;
+  if (!/^https?:\/\//i.test(seed)) {
+    return seed.replace(/^@/, "").trim().toLowerCase();
+  }
+
+  try {
+    const parsed = new URL(seed);
+    const match = parsed.pathname.match(/\/user\/([^/?#\s]+)/i);
+    if (!match || !match[1]) return "";
+    return decodeURIComponent(match[1]).toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function isAccountMismatch(localRaw, cloudRaw) {
+  const localAccount = normalizeDouyinUrl(localRaw || "");
+  const cloudAccount = normalizeDouyinUrl(cloudRaw || "");
+  if (!localAccount || !cloudAccount) return false;
+
+  const localSecUid = extractSecUid(localAccount);
+  const cloudSecUid = extractSecUid(cloudAccount);
+  if (localSecUid && cloudSecUid) {
+    return localSecUid !== cloudSecUid;
+  }
+
+  if (!localSecUid && !cloudSecUid) {
+    const localUserId = extractUserPathId(localAccount);
+    const cloudUserId = extractUserPathId(cloudAccount);
+    if (localUserId && cloudUserId) {
+      return localUserId !== cloudUserId;
+    }
+  }
+
+  // 一边是 sec_uid、一边是普通用户名时，无法证明不一致，避免误报。
+  return false;
+}
+
 function normalizeDouyinUrl(raw) {
   const source = (raw || "").trim();
   if (!source) return "";
@@ -678,7 +720,7 @@ async function handleManualRefresh() {
     if (cloud?.account_url) {
       const cloudAccount = normalizeDouyinUrl(String(cloud.account_url));
       const localAccount = normalizeDouyinUrl(state.douyinInput || state.douyinUrl || "");
-      if (cloudAccount && localAccount && cloudAccount !== localAccount) {
+      if (isAccountMismatch(localAccount, cloudAccount)) {
         next = {
           ...next,
           lastStatus: "warn",
