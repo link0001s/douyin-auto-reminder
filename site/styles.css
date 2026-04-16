@@ -124,29 +124,54 @@ h1 {
   font-size: 14px;
 }
 
-.mascot-row {
-  margin-top: 14px;
+.side-stack {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 12px;
+  pointer-events: none;
+  z-index: 1;
 }
 
-.mascot-card {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+.side-stack.left {
+  left: max(8px, calc((100vw - 980px) / 2 - 70px));
+}
+
+.side-stack.right {
+  right: max(8px, calc((100vw - 980px) / 2 - 70px));
+}
+
+.side-chip {
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
   border: 1px solid #2b3a54;
-  background: #10192a;
-  border-radius: 999px;
-  padding: 6px 10px 6px 6px;
-  font-size: 12px;
-  color: #b8cae8;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
 }
 
-.icon-svg {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+.side-chip svg {
+  width: 32px;
+  height: 32px;
+}
+
+.side-chip.tone-a {
+  background: linear-gradient(155deg, #112334, #0e1a2a);
+}
+
+.side-chip.tone-b {
+  background: linear-gradient(155deg, #13231d, #0f1a18);
+}
+
+.side-chip.tone-c {
+  background: linear-gradient(155deg, #2b1d17, #19120f);
+}
+
+.side-chip.tone-d {
+  background: linear-gradient(155deg, #1d2230, #121723);
 }
 
 .panel {
@@ -407,6 +432,10 @@ select:focus {
 @media (max-width: 820px) {
   .stats {
     grid-template-columns: 1fr;
+  }
+
+  .side-stack {
+    display: none;
   }
 }
 

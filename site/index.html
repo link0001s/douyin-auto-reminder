@@ -20,6 +20,61 @@
     <div class="bg-grid" aria-hidden="true"></div>
     <div class="bg-orb orb-a" aria-hidden="true"></div>
     <div class="bg-orb orb-b" aria-hidden="true"></div>
+    <div class="side-stack left" aria-hidden="true">
+      <div class="side-chip tone-a">
+        <svg viewBox="0 0 64 64" role="img" aria-label="wrench">
+          <path
+            d="M40.5 13.5a10.4 10.4 0 0 0-11.8 13.6L16.8 39a5.2 5.2 0 1 0 7.4 7.4l11.8-11.8a10.4 10.4 0 0 0 12-11.1l-5.8 2.5-4.7-4.7z"
+            fill="#72deff"
+          />
+          <circle cx="20.4" cy="42.9" r="2.2" fill="#08101a" />
+        </svg>
+      </div>
+      <div class="side-chip tone-c">
+        <svg viewBox="0 0 64 64" role="img" aria-label="gear">
+          <path
+            d="M29.7 10h4.6l1.1 5.4a16.7 16.7 0 0 1 4.4 1.9l4.8-2.8 3.2 3.2-2.8 4.8a16.7 16.7 0 0 1 1.9 4.4L52 28v4.6l-5.4 1.1a16.7 16.7 0 0 1-1.9 4.4l2.8 4.8-3.2 3.2-4.8-2.8a16.7 16.7 0 0 1-4.4 1.9L34.3 50h-4.6l-1.1-5.4a16.7 16.7 0 0 1-4.4-1.9l-4.8 2.8-3.2-3.2 2.8-4.8a16.7 16.7 0 0 1-1.9-4.4L12 32.6V28l5.4-1.1a16.7 16.7 0 0 1 1.9-4.4l-2.8-4.8 3.2-3.2 4.8 2.8a16.7 16.7 0 0 1 4.4-1.9z"
+            fill="#ff9f66"
+          />
+          <circle cx="32" cy="30.3" r="7.3" fill="#08101a" />
+        </svg>
+      </div>
+      <div class="side-chip tone-b">
+        <svg viewBox="0 0 64 64" role="img" aria-label="antler">
+          <path
+            d="M18 49V28c0-8.4 4.8-13.6 14-13.6h2V19h-2c-6 0-9 3.1-9 9v21z"
+            fill="#8fffa5"
+          />
+          <path
+            d="M46 49V28c0-5.9-3-9-9-9h-2v-4.6h2c9.2 0 14 5.2 14 13.6v21z"
+            fill="#8fffa5"
+          />
+          <path d="M23 25h8v3.4h-8zm0 7h9v3.4h-9zm22-7h-8v3.4h8zm-22 14h10v3.4H23zm22 0h-10v3.4h10z" fill="#8fffa5" />
+        </svg>
+      </div>
+    </div>
+    <div class="side-stack right" aria-hidden="true">
+      <div class="side-chip tone-b">
+        <svg viewBox="0 0 64 64" role="img" aria-label="robot">
+          <rect x="17" y="18" width="30" height="28" rx="8" fill="#81ffb6" />
+          <rect x="21" y="22" width="22" height="14" rx="4" fill="#102218" opacity="0.4" />
+          <circle cx="27.5" cy="29" r="3" fill="#0d131a" />
+          <circle cx="36.5" cy="29" r="3" fill="#0d131a" />
+          <rect x="25.5" y="37" width="13" height="3.4" rx="1.7" fill="#0d131a" />
+          <rect x="30.5" y="12" width="3" height="7" rx="1.5" fill="#81ffb6" />
+          <circle cx="32" cy="11.2" r="2.2" fill="#ff965f" />
+        </svg>
+      </div>
+      <div class="side-chip tone-d">
+        <svg viewBox="0 0 64 64" role="img" aria-label="wolf head">
+          <path d="M12 24l10-9 10 7 10-7 10 9-3 23H15z" fill="#d6e3ff" />
+          <path d="M20 25l-3 16h30l-3-16-12 7z" fill="#8aa1c5" />
+          <path d="M24 33a2.5 2.5 0 1 0 .1 0zm16 0a2.5 2.5 0 1 0 .1 0z" fill="#0c1118" />
+          <path d="M30 39h4l-2 3.8z" fill="#0c1118" />
+          <path d="M26.5 44h11a6 6 0 0 1-11 0z" fill="#0c1118" />
+        </svg>
+      </div>
+    </div>
 
     <main class="wrap">
       <section class="hero reveal">
@@ -32,33 +87,6 @@
           规则固定：7天7条、15天15条、30天30条。到期后如果没点检测，或检测不达标，立即触发邮件提醒。
         </p>
 
-        <div class="mascot-row" aria-hidden="true">
-          <div class="mascot-card">
-            <svg viewBox="0 0 64 64" class="icon-svg" role="img" aria-label="wrench">
-              <circle cx="32" cy="32" r="30" fill="#1d2430" stroke="#38465f" stroke-width="2" />
-              <path
-                d="M41 17a9 9 0 0 0-9.6 12.4L19.5 41.3a4.2 4.2 0 1 0 5.9 5.9l11.8-11.8A9 9 0 0 0 47 25.8l-5.2 2.3-3.9-3.9Z"
-                fill="#78d6ff"
-              />
-              <circle cx="22.3" cy="44.4" r="1.8" fill="#0f131b" />
-            </svg>
-            <span>小扳手巡检</span>
-          </div>
-
-          <div class="mascot-card">
-            <svg viewBox="0 0 64 64" class="icon-svg" role="img" aria-label="robot">
-              <circle cx="32" cy="32" r="30" fill="#1d2430" stroke="#38465f" stroke-width="2" />
-              <rect x="18" y="19" width="28" height="26" rx="8" fill="#81ffb6" />
-              <rect x="21" y="22" width="22" height="14" rx="4" fill="#112018" opacity="0.36" />
-              <circle cx="26" cy="29" r="3" fill="#0f131b" />
-              <circle cx="38" cy="29" r="3" fill="#0f131b" />
-              <rect x="25" y="37" width="14" height="3.4" rx="1.7" fill="#0f131b" />
-              <rect x="30.5" y="13" width="3" height="7" rx="1.5" fill="#81ffb6" />
-              <circle cx="32" cy="12" r="2.1" fill="#ff8f5a" />
-            </svg>
-            <span>小机器人提醒</span>
-          </div>
-        </div>
       </section>
 
       <section class="panel reveal delay-1">
