@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
+from urllib import error as urlerror
+from urllib import request as urlrequest
 from zoneinfo import ZoneInfo
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -17,14 +19,15 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 
 @dataclass
 class EmailConfig:
-    smtp_host: str
-    smtp_port: int
-    smtp_user: str
-    smtp_password: str
-    sender: str
+    provider: str
     to: list[str]
-    use_ssl: bool
-    use_starttls: bool
+    sender: str | None = None
+    smtp_host: str | None = None
+    smtp_port: int = 465
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    use_ssl: bool = True
+    use_starttls: bool = False
 
 
 @dataclass
@@ -56,29 +59,37 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def parse_email_config(data: dict[str, Any]) -> EmailConfig:
-    required = [
-        "smtp_host",
-        "smtp_port",
-        "smtp_user",
-        "smtp_password",
-        "from",
-        "to",
-    ]
-    missing = [k for k in required if k not in data or not data[k]]
-    if missing:
-        raise ValueError(f"email 配置缺少字段: {', '.join(missing)}")
-
-    recipients = data["to"]
+    recipients = data.get("to")
     if not isinstance(recipients, list) or not recipients:
         raise ValueError("email.to 必须是非空数组")
+    recipient_list = [str(x) for x in recipients if str(x).strip()]
+    if not recipient_list:
+        raise ValueError("email.to 必须至少包含一个有效邮箱")
+
+    provider = str(data.get("provider", "smtp")).strip().lower()
+    if provider == "formsubmit":
+        return EmailConfig(
+            provider="formsubmit",
+            sender=str(data.get("from") or ""),
+            to=recipient_list,
+        )
+
+    if provider != "smtp":
+        raise ValueError("email.provider 只支持 smtp 或 formsubmit")
+
+    required = ["smtp_host", "smtp_port", "smtp_user", "smtp_password", "from"]
+    missing = [k for k in required if not str(data.get(k) or "").strip()]
+    if missing:
+        raise ValueError(f"email(smtp) 配置缺少字段: {', '.join(missing)}")
 
     return EmailConfig(
+        provider="smtp",
         smtp_host=str(data["smtp_host"]),
         smtp_port=int(data["smtp_port"]),
         smtp_user=str(data["smtp_user"]),
         smtp_password=str(data["smtp_password"]),
         sender=str(data["from"]),
-        to=[str(x) for x in recipients],
+        to=recipient_list,
         use_ssl=bool(data.get("use_ssl", True)),
         use_starttls=bool(data.get("use_starttls", False)),
     )
@@ -223,25 +234,87 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
+def send_email_via_formsubmit(recipients: list[str], subject: str, body: str) -> None:
+    for recipient in recipients:
+        endpoint = f"https://formsubmit.co/ajax/{recipient}"
+        payload = {
+            "_subject": subject,
+            "name": "抖音更新检测台",
+            "message": body,
+            "_template": "box",
+            "_captcha": "false",
+        }
+        raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urlrequest.Request(
+            endpoint,
+            data=raw,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            method="POST",
+        )
+
+        try:
+            with urlrequest.urlopen(req, timeout=30) as resp:
+                status = int(resp.getcode() or 0)
+                text = resp.read().decode("utf-8", errors="ignore")
+        except urlerror.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            raise RuntimeError(
+                f"FormSubmit 发送失败({recipient}) HTTP {exc.code}: {detail[:180]}"
+            ) from exc
+        except urlerror.URLError as exc:
+            raise RuntimeError(f"FormSubmit 发送失败({recipient}): {exc.reason}") from exc
+
+        data: dict[str, Any] = {}
+        if text:
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    data = parsed
+            except json.JSONDecodeError:
+                data = {}
+
+        success = data.get("success")
+        if status >= 400 or not (success is True or str(success).lower() == "true"):
+            detail = str(data.get("message") or text or f"HTTP {status}")
+            raise RuntimeError(
+                f"FormSubmit 发送失败({recipient})。可能需要先在 FormSubmit 完成邮箱激活。返回: {detail[:180]}"
+            )
+
+
 def send_email(config: AppConfig, subject: str, body: str) -> None:
+    if config.email.provider == "formsubmit":
+        send_email_via_formsubmit(config.email.to, subject, body)
+        return
+
+    smtp_host = config.email.smtp_host
+    smtp_port = config.email.smtp_port
+    smtp_user = config.email.smtp_user
+    smtp_password = config.email.smtp_password
+    sender = config.email.sender
+    if not smtp_host or not smtp_user or not smtp_password or not sender:
+        raise RuntimeError("SMTP 配置不完整，无法发送邮件")
+
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = config.email.sender
+    msg["From"] = sender
     msg["To"] = ", ".join(config.email.to)
     msg.set_content(body)
 
     if config.email.use_ssl:
         with smtplib.SMTP_SSL(
-            config.email.smtp_host, config.email.smtp_port, timeout=30
+            smtp_host, smtp_port, timeout=30
         ) as smtp:
-            smtp.login(config.email.smtp_user, config.email.smtp_password)
+            smtp.login(smtp_user, smtp_password)
             smtp.send_message(msg)
         return
 
-    with smtplib.SMTP(config.email.smtp_host, config.email.smtp_port, timeout=30) as smtp:
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as smtp:
         if config.email.use_starttls:
             smtp.starttls()
-        smtp.login(config.email.smtp_user, config.email.smtp_password)
+        smtp.login(smtp_user, smtp_password)
         smtp.send_message(msg)
 
 

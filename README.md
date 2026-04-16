@@ -37,11 +37,6 @@
 必填 Secrets：
 
 - `DOUYIN_USER_URL`：抖音账号主页链接（`https://www.douyin.com/user/...`）
-- `SMTP_HOST`：SMTP 地址（如 `smtp.qq.com`）
-- `SMTP_PORT`：SMTP 端口（如 `465`）
-- `SMTP_USER`：发件邮箱账号
-- `SMTP_PASSWORD`：SMTP 授权码
-- `EMAIL_FROM`：发件邮箱
 - `EMAIL_TO`：收件邮箱（多个用英文逗号分隔）
 
 可选 Secrets：
@@ -49,6 +44,7 @@
 - `TIMEZONE`：默认 `Asia/Shanghai`
 - `MAIL_SUBJECT_PREFIX`：默认 `[抖音催更]`
 - `DOUYIN_COOKIES_B64`：可选，抖音风控时建议加
+- `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `EMAIL_FROM`：可选。全部填写则走 SMTP；不填时自动走 FormSubmit（免 SMTP）。
 
 ### 第 3 步：手动点一次 Run workflow 初始化状态
 
@@ -80,6 +76,7 @@ cp config.example.json config.json
 2. 邮件发不出去
 - 大部分邮箱用 SMTP 授权码，不是登录密码。
 - 优先用 SSL 465 端口。
+- 若走 FormSubmit，首次可能需要在收件箱里完成一次激活确认。
 
 3. 定时不触发
 - GitHub cron 是 UTC 时间。当前工作流 `0 1 * * *` 等于北京时间每天 09:00。

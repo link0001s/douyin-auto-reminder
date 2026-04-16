@@ -42,12 +42,12 @@ jobs:
         shell: bash
         env:
           DOUYIN_USER_URL: ${{ secrets.DOUYIN_USER_URL }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-          EMAIL_TO: ${{ secrets.EMAIL_TO }}
           TIMEZONE: ${{ secrets.TIMEZONE }}
           MAIL_SUBJECT_PREFIX: ${{ secrets.MAIL_SUBJECT_PREFIX }}
         run: |
@@ -68,6 +68,29 @@ jobs:
           if not email_to:
               raise SystemExit("EMAIL_TO must contain at least one email")
 
+          smtp_ready = all(
+              os.getenv(name, "").strip()
+              for name in ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_FROM"]
+          )
+
+          if smtp_ready:
+              email_config = {
+                  "provider": "smtp",
+                  "smtp_host": os.getenv("SMTP_HOST", "").strip(),
+                  "smtp_port": int(os.getenv("SMTP_PORT", "").strip()),
+                  "smtp_user": os.getenv("SMTP_USER", "").strip(),
+                  "smtp_password": os.getenv("SMTP_PASSWORD", "").strip(),
+                  "from": os.getenv("EMAIL_FROM", "").strip(),
+                  "to": email_to,
+                  "use_ssl": True,
+                  "use_starttls": False,
+              }
+          else:
+              email_config = {
+                  "provider": "formsubmit",
+                  "to": email_to,
+              }
+
           config = {
               "douyin_user_url": must("DOUYIN_USER_URL"),
               "timezone": timezone,
@@ -77,16 +100,7 @@ jobs:
                   "playlistend": 30,
                   "cookies_file": "cookies.txt"
               },
-              "email": {
-                  "smtp_host": must("SMTP_HOST"),
-                  "smtp_port": int(must("SMTP_PORT")),
-                  "smtp_user": must("SMTP_USER"),
-                  "smtp_password": must("SMTP_PASSWORD"),
-                  "from": must("EMAIL_FROM"),
-                  "to": email_to,
-                  "use_ssl": True,
-                  "use_starttls": False,
-              },
+              "email": email_config,
           }
 
           with open("config.json", "w", encoding="utf-8") as f:
