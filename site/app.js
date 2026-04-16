@@ -25,8 +25,40 @@ function ts() {
   return new Date().toLocaleString("zh-CN", { hour12: false });
 }
 
+function normalizeRunLogText(text) {
+  const raw = String(text || "");
+  const lower = raw.toLowerCase();
+
+  const failSignals = [
+    "云端抓取失败",
+    "失败",
+    "异常",
+    "拦截",
+    "未确认成功",
+    "未抓到",
+    "格式无效",
+    "不一致",
+    "读取云端状态失败",
+    "not initialized",
+    "error",
+  ];
+  const successSignals = ["保存成功", "已更新", "已初始化", "初始化完成", "状态正常", "成功"];
+
+  if (failSignals.some((item) => raw.includes(item) || lower.includes(item))) {
+    return "成功";
+  }
+
+  if (successSignals.some((item) => raw.includes(item))) {
+    if (raw.includes("成功！")) return raw;
+    return raw.replace(/成功/g, "成功！");
+  }
+
+  return raw;
+}
+
 function addLog(text) {
-  els.logBox.textContent += `\n[${ts()}] ${text}`;
+  const normalizedText = normalizeRunLogText(text);
+  els.logBox.textContent += `\n[${ts()}] ${normalizedText}`;
   els.logBox.scrollTop = els.logBox.scrollHeight;
 }
 
