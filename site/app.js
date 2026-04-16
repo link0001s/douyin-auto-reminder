@@ -57,6 +57,13 @@ const FETCH_PROXIES = [
       Accept: "text/plain, application/json;q=0.9, */*;q=0.8",
     },
   },
+  {
+    name: "codetabs",
+    buildUrl: (targetUrl) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(targetUrl)}`,
+    headers: {
+      Accept: "text/plain, text/html;q=0.9, */*;q=0.8",
+    },
+  },
 ];
 
 function trimTailSymbols(value) {
@@ -238,7 +245,9 @@ function classifyFetchPayload(text, status) {
     lower.includes("byted_acrawler") ||
     lower.includes("__ac_signature") ||
     lower.includes("bdturing") ||
-    lower.includes("captcha")
+    lower.includes("captcha") ||
+    lower.includes("x-tt-system-error") ||
+    lower.includes("access denied")
   ) {
     return "anti_bot";
   }
@@ -249,6 +258,19 @@ function classifyFetchPayload(text, status) {
     return "timeout";
   }
   return "normal";
+}
+
+function extractBlockUntilText(content) {
+  const source = String(content || "");
+  const match = source.match(/blocked until ([^"]+?) due/i);
+  if (!match || !match[1]) return "";
+
+  const raw = match[1].trim();
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleString("zh-CN", { hour12: false });
+  }
+  return raw;
 }
 
 function buildFetchTargets(douyinUrl) {
@@ -299,6 +321,7 @@ async function fetchVideoIds(douyinUrl) {
   const targets = buildFetchTargets(douyinUrl);
   let sawAntiBot = false;
   let sawShortLink = false;
+  let blockedUntil = "";
 
   for (const targetUrl of targets) {
     try {
@@ -333,6 +356,9 @@ async function fetchVideoIds(douyinUrl) {
       const tag = classifyFetchPayload(text, status);
       if (tag === "blocked" || tag === "anti_bot") {
         sawAntiBot = true;
+        if (!blockedUntil) {
+          blockedUntil = extractBlockUntilText(text);
+        }
       }
 
       const ids = extractVideoIds(text);
@@ -343,7 +369,10 @@ async function fetchVideoIds(douyinUrl) {
   }
 
   if (sawAntiBot) {
-    throw new Error("检测通道被抖音风控拦截，请稍后重试；若持续失败，请改用完整主页链接或云端版（带 cookies）");
+    if (blockedUntil) {
+      throw new Error(`检测通道被抖音风控拦截，预计可在 ${blockedUntil} 后重试；若持续失败，请改用云端版（带 cookies）`);
+    }
+    throw new Error("检测通道被抖音风控拦截，请稍后重试；若持续失败，请改用云端版（带 cookies）");
   }
   if (sawShortLink) {
     throw new Error("短链解析失败，请改粘贴完整主页链接（https://www.douyin.com/user/...）");
