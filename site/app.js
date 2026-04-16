@@ -3,6 +3,8 @@ const CLOUD_STATE_URL = "https://raw.githubusercontent.com/link0001s/douyin-auto
 const LEGACY_EMAIL = "2879154754@qq.com";
 const MIGRATED_EMAIL = "15299563429@163.com";
 const BREACH_NOTIFY_EMAIL = "2879154754@qq.com";
+const UNLOCK_TAP_TARGET = 5;
+const UNLOCK_TAP_WINDOW_MS = 5000;
 
 const els = {
   form: document.getElementById("monitorForm"),
@@ -23,6 +25,9 @@ const els = {
   alertMailLink: document.getElementById("alertMailLink"),
   logBox: document.getElementById("logBox"),
 };
+
+let unlockTapCount = 0;
+let unlockTapDeadline = 0;
 
 function ts() {
   return new Date().toLocaleString("zh-CN", { hour12: false });
@@ -299,6 +304,45 @@ function applyLockUi(locked) {
 
 function saveState(state) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function resetUnlockTapProgress() {
+  unlockTapCount = 0;
+  unlockTapDeadline = 0;
+}
+
+function handleStatusPillUnlockTap() {
+  const state = loadState();
+  if (!isConfigLocked(state)) {
+    resetUnlockTapProgress();
+    return;
+  }
+
+  const now = Date.now();
+  if (now > unlockTapDeadline) {
+    unlockTapCount = 0;
+  }
+
+  unlockTapCount += 1;
+  unlockTapDeadline = now + UNLOCK_TAP_WINDOW_MS;
+
+  if (unlockTapCount < UNLOCK_TAP_TARGET) {
+    const remaining = UNLOCK_TAP_TARGET - unlockTapCount;
+    addLog(`隐藏解锁：再点 ${remaining} 次可解除锁定`);
+    return;
+  }
+
+  const unlockedState = {
+    ...state,
+    configLocked: false,
+    latestResultText: "已解除锁定，可重新保存状态",
+    lastStatus: "ok",
+  };
+
+  saveState(unlockedState);
+  render(unlockedState);
+  addLog("已连点5次，配置已解除锁定");
+  resetUnlockTapProgress();
 }
 
 function loadState() {
@@ -824,6 +868,7 @@ async function autoCheckNoManualDetection() {
 
 els.saveBtn.addEventListener("click", handleSave);
 els.refreshBtn.addEventListener("click", handleManualRefresh);
+els.statusPill.addEventListener("click", handleStatusPillUnlockTap);
 els.form.addEventListener("input", () => {
   const current = loadState() || {};
   if (isConfigLocked(current)) {
