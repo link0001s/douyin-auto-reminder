@@ -210,6 +210,94 @@ async function optimizeEvidenceImage(file) {
   };
 }
 
+async function optimizeEvidenceDataUrl(rawDataUrl, fileName, options = {}) {
+  const source = String(rawDataUrl || "").trim();
+  if (!source.startsWith("data:image/")) {
+    throw new Error("图片数据无效");
+  }
+
+  const forceSmall = Boolean(options.forceSmall);
+  const maxBytes = forceSmall ? Math.floor(EVIDENCE_MAX_BYTES * 0.65) : EVIDENCE_MAX_BYTES;
+  const targetMaxEdge = forceSmall ? Math.floor(EVIDENCE_MAX_EDGE * 0.72) : EVIDENCE_MAX_EDGE;
+  const minMaxSide = forceSmall ? 260 : EVIDENCE_MIN_MAX_SIDE;
+
+  const img = await loadImageFromDataUrl(source);
+  const maxSide = Math.max(img.width, img.height) || 1;
+  const scale = Math.min(1, targetMaxEdge / maxSide);
+  let width = Math.max(1, Math.round(img.width * scale));
+  let height = Math.max(1, Math.round(img.height * scale));
+
+  const canvas = document.createElement("canvas");
+  let preferredMime = "image/jpeg";
+  try {
+    canvas.width = Math.max(1, width);
+    canvas.height = Math.max(1, height);
+    const testWebp = canvas.toDataURL("image/webp", 0.8);
+    if (testWebp.startsWith("data:image/webp")) {
+      preferredMime = "image/webp";
+    }
+  } catch {
+    preferredMime = "image/jpeg";
+  }
+
+  let dataUrl = "";
+  let bytes = Infinity;
+  for (let scaleStep = 0; scaleStep < 9; scaleStep += 1) {
+    canvas.width = Math.max(1, width);
+    canvas.height = Math.max(1, height);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("图片处理失败");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    let quality = forceSmall ? 0.78 : 0.86;
+    for (let i = 0; i < 12; i += 1) {
+      dataUrl = canvas.toDataURL(preferredMime, quality);
+      bytes = estimateDataUrlBytes(dataUrl);
+      if (bytes <= maxBytes) break;
+      quality = Math.max(0.22, quality - 0.07);
+    }
+
+    if (bytes <= maxBytes) break;
+    const currentMaxSide = Math.max(width, height);
+    if (currentMaxSide <= minMaxSide) break;
+    width = Math.max(1, Math.round(width * 0.82));
+    height = Math.max(1, Math.round(height * 0.82));
+  }
+
+  if (!dataUrl || bytes > maxBytes) {
+    throw new Error("图片压缩后仍偏大");
+  }
+
+  const mime = (String(dataUrl).match(/^data:([^;]+);/) || [])[1] || preferredMime;
+  return {
+    dataUrl,
+    bytes,
+    mime,
+    fileName: buildEvidenceName(fileName || "evidence-image", mime),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function compactEvidenceImages(images, options = {}) {
+  const source = Array.isArray(images) ? images : [];
+  const compacted = [];
+  for (let i = 0; i < source.length; i += 1) {
+    const item = source[i];
+    const normalized = normalizeEvidenceItem(item, `evidence-image-${i + 1}`);
+    if (!normalized) continue;
+    try {
+      const optimized = await optimizeEvidenceDataUrl(normalized.dataUrl, normalized.fileName, options);
+      compacted.push(optimized);
+    } catch {
+      compacted.push(normalized);
+    }
+    if (compacted.length >= EVIDENCE_MAX_COUNT) break;
+  }
+  return compacted;
+}
+
 function dataUrlToBlob(dataUrl) {
   const raw = String(dataUrl || "");
   const match = raw.match(/^data:([^;]+);base64,(.+)$/);
@@ -441,7 +529,10 @@ async function handleEvidenceImageChange(event) {
   }
 
   const current = loadState() || {};
-  const existingImages = getEvidenceImages(current);
+  let existingImages = getEvidenceImages(current);
+  if (existingImages.length) {
+    existingImages = await compactEvidenceImages(existingImages, { forceSmall: false });
+  }
   const freeSlots = EVIDENCE_MAX_COUNT - existingImages.length;
   if (freeSlots <= 0) {
     addLog(`违约图片最多支持 ${EVIDENCE_MAX_COUNT} 张，请先移除后再添加。`);
@@ -480,14 +571,28 @@ async function handleEvidenceImageChange(event) {
   }
 
   if (added.length) {
-    const next = applyEvidenceImages(current, [...existingImages, ...added]);
-    const saved = saveState(next);
+    const merged = [...existingImages, ...added];
+    let next = applyEvidenceImages(current, merged);
+    let saved = saveState(next);
     if (saved) {
       render(next);
       addLog(`图片插入成功：新增 ${added.length} 张，当前 ${getEvidenceImages(next).length}/${EVIDENCE_MAX_COUNT}`);
     } else {
-      render(current);
-      addLog("提醒：本次新增图片未保存，请先移除部分图片后再重试。");
+      addLog("本地存储空间紧张，正在自动压缩后重试保存...");
+      try {
+        const compactedAll = await compactEvidenceImages(merged, { forceSmall: true });
+        next = applyEvidenceImages(current, compactedAll);
+        saved = saveState(next);
+      } catch (err) {
+        console.error("[evidence] 自动压缩重试未完成：", err);
+      }
+      if (saved) {
+        render(next);
+        addLog(`图片已压缩保存：当前 ${getEvidenceImages(next).length}/${EVIDENCE_MAX_COUNT}`);
+      } else {
+        render(current);
+        addLog("提醒：本次新增图片未保存，请先移除部分图片后再重试。");
+      }
     }
   }
   if (!added.length && failCount) {
@@ -1494,6 +1599,30 @@ async function autoCheckNoManualDetection() {
   render(next);
 }
 
+async function autoCompactEvidenceOnBoot() {
+  const state = loadState();
+  if (!state) return;
+  const images = getEvidenceImages(state);
+  if (!images.length) return;
+
+  const needCompact = images.some((item) => {
+    const bytes = Number(item?.bytes || estimateDataUrlBytes(item?.dataUrl || ""));
+    return !Number.isFinite(bytes) || bytes > EVIDENCE_MAX_BYTES;
+  });
+  if (!needCompact) return;
+
+  try {
+    const compacted = await compactEvidenceImages(images, { forceSmall: true });
+    const next = applyEvidenceImages(state, compacted);
+    if (saveState(next)) {
+      render(next);
+      addLog(`已自动优化违约图片存储：${getEvidenceImages(next).length}/${EVIDENCE_MAX_COUNT}`);
+    }
+  } catch (err) {
+    console.error("[evidence] 启动时自动压缩未完成：", err);
+  }
+}
+
 els.saveBtn.addEventListener("click", handleSave);
 els.refreshBtn.addEventListener("click", handleManualRefresh);
 els.statusPill.addEventListener("click", handleStatusPillUnlockTap);
@@ -1543,6 +1672,7 @@ els.form.addEventListener("input", () => {
 });
 
 render(loadState());
+autoCompactEvidenceOnBoot();
 autoCheckNoManualDetection();
 setInterval(autoCheckNoManualDetection, 60 * 1000);
 addLog("云端模式已启用：保存不再本地抓抖音，点检测会同步云端“已更新/未更新”状态。");
