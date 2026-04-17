@@ -30,6 +30,7 @@ jobs:
       - name: Send test mail via Resend
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           TO_EMAIL: ${{ github.event.inputs.to_email }}
           SUBJECT: ${{ github.event.inputs.subject }}
           BODY: ${{ github.event.inputs.body }}
@@ -41,10 +42,11 @@ jobs:
           key = os.getenv("RESEND_API_KEY", "").strip()
           if not key:
             raise SystemExit("Missing RESEND_API_KEY")
+          sender = os.getenv("EMAIL_FROM", "").strip() or "Douyin Monitor <onboarding@resend.dev>"
 
           resend.api_key = key
           result = resend.Emails.send({
-            "from": "Douyin Monitor <onboarding@resend.dev>",
+            "from": sender,
             "to": [os.environ["TO_EMAIL"]],
             "subject": os.environ["SUBJECT"],
             "text": os.environ["BODY"],

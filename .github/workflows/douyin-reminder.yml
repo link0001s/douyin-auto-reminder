@@ -43,11 +43,8 @@ jobs:
         env:
           DOUYIN_USER_URL: ${{ secrets.DOUYIN_USER_URL }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           TIMEZONE: ${{ secrets.TIMEZONE }}
           MAIL_SUBJECT_PREFIX: ${{ secrets.MAIL_SUBJECT_PREFIX }}
         run: |
@@ -67,29 +64,15 @@ jobs:
           email_to = [x.strip() for x in email_to_raw.split(",") if x.strip()]
           if not email_to:
               raise SystemExit("EMAIL_TO must contain at least one email")
+          must("RESEND_API_KEY")
 
-          smtp_ready = all(
-              os.getenv(name, "").strip()
-              for name in ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_FROM"]
-          )
-
-          if smtp_ready:
-              email_config = {
-                  "provider": "smtp",
-                  "smtp_host": os.getenv("SMTP_HOST", "").strip(),
-                  "smtp_port": int(os.getenv("SMTP_PORT", "").strip()),
-                  "smtp_user": os.getenv("SMTP_USER", "").strip(),
-                  "smtp_password": os.getenv("SMTP_PASSWORD", "").strip(),
-                  "from": os.getenv("EMAIL_FROM", "").strip(),
-                  "to": email_to,
-                  "use_ssl": True,
-                  "use_starttls": False,
-              }
-          else:
-              email_config = {
-                  "provider": "formsubmit",
-                  "to": email_to,
-              }
+          email_config = {
+              "provider": "resend",
+              "to": email_to,
+          }
+          email_from = os.getenv("EMAIL_FROM", "").strip()
+          if email_from:
+              email_config["from"] = email_from
 
           config = {
               "douyin_user_url": must("DOUYIN_USER_URL"),
