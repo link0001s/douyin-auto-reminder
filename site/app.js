@@ -1232,6 +1232,16 @@ if (els.evidenceImageInput) {
 if (els.evidenceClearBtn) {
   els.evidenceClearBtn.addEventListener("click", handleEvidenceImageClear);
 }
+if (els.evidencePreview) {
+  // 兜底：无论预览区里是否出现旧版 <a>，都不允许跳转到新页面
+  els.evidencePreview.addEventListener(
+    "click",
+    (event) => {
+      event.preventDefault();
+    },
+    true
+  );
+}
 els.form.addEventListener("input", () => {
   const current = loadState() || {};
   if (isConfigLocked(current)) {
