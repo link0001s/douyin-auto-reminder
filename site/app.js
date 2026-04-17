@@ -222,7 +222,14 @@ function renderEvidence(state) {
   els.evidenceHint.textContent = locked
     ? `已插入图片：${imageName}（已随保存状态锁定）`
     : `已插入图片：${imageName}`;
-  els.evidencePreview.textContent = `文件名：${imageName}`;
+  const link = document.createElement("a");
+  link.className = "evidence-preview-link";
+  link.href = state.evidenceImageDataUrl;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = `文件名：${imageName}（点击查看）`;
+  link.title = "点击查看已上传图片";
+  els.evidencePreview.replaceChildren(link);
   els.evidencePreview.classList.remove("hidden");
 }
 
