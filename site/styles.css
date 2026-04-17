@@ -229,6 +229,23 @@ h1 {
   filter: drop-shadow(0 0 10px rgba(214, 227, 255, 0.3));
 }
 
+.side-chip.control-chip {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.side-chip.control-chip svg {
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+
+.side-chip.control-chip:hover svg {
+  transform: scale(1.08);
+}
+
+.side-chip.lock-armed svg {
+  filter: drop-shadow(0 0 12px rgba(255, 82, 82, 0.48));
+}
+
 .side-chip.unlock-chip {
   pointer-events: auto;
   cursor: pointer;
@@ -257,6 +274,10 @@ h1 {
 
 .side-stack .side-chip:nth-of-type(4) {
   transform: translateX(3px) rotate(3deg);
+}
+
+.side-stack .side-chip:nth-of-type(5) {
+  transform: translateX(-2px) rotate(-2deg);
 }
 
 .panel {

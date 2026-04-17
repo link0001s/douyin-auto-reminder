@@ -33,6 +33,8 @@ const els = {
   evidenceHint: document.getElementById("evidenceHint"),
   evidencePreview: document.getElementById("evidencePreview"),
   evidencePreviewImg: document.getElementById("evidencePreviewImg"),
+  deerGuardBtn: document.getElementById("deerGuardBtn"),
+  deerLockChip: document.getElementById("deerLockChip"),
 };
 
 let unlockTapCount = 0;
@@ -509,6 +511,45 @@ function isConfigLocked(state) {
   return new Date() < new Date(state.dueAt);
 }
 
+function isDeerHardLockActive(state) {
+  return Boolean(state?.deerHardLock) && isConfigLocked(state);
+}
+
+function syncDeerGuardUi(state) {
+  const armed = isDeerHardLockActive(state);
+  [els.deerGuardBtn, els.deerLockChip].forEach((el) => {
+    if (!el) return;
+    el.classList.toggle("lock-armed", armed);
+    el.title = armed ? "鹿锁已启用：必须等周期结束" : "启用鹿锁：本周期不可狼头解锁";
+  });
+}
+
+function activateDeerHardLock(source) {
+  const state = loadState();
+  if (!state) {
+    addLog("请先点击“保存状态”后再启用鹿锁。");
+    return;
+  }
+  if (!isConfigLocked(state)) {
+    addLog("当前不在锁定周期，鹿锁无需启用。");
+    return;
+  }
+  if (isDeerHardLockActive(state)) {
+    addLog("鹿锁已启用，本周期必须等到到期。");
+    return;
+  }
+
+  const next = {
+    ...state,
+    deerHardLock: true,
+    latestResultText: "已启用鹿锁：本周期仅能到期解锁",
+    lastStatus: state.lastStatus || "ok",
+  };
+  saveState(next);
+  render(next);
+  addLog(source === "deer" ? "已启用鹿锁，狼头解锁已禁用。" : "鹿锁已启用。");
+}
+
 function applyLockUi(locked) {
   els.douyinInput.disabled = locked;
   els.noticeEmail.disabled = locked;
@@ -527,6 +568,11 @@ function resetUnlockTapProgress() {
 function unlockConfigLock(successText) {
   const state = loadState();
   if (!isConfigLocked(state)) {
+    resetUnlockTapProgress();
+    return false;
+  }
+  if (isDeerHardLockActive(state)) {
+    addLog("鹿锁已启用，必须等到规划周期结束后才可解锁。");
     resetUnlockTapProgress();
     return false;
   }
@@ -571,6 +617,14 @@ function handleStatusPillUnlockTap() {
 
 function handleWolfUnlockTap() {
   unlockConfigLock("点击狼头，配置已解除锁定");
+}
+
+function handleDeerGuardClick() {
+  activateDeerHardLock("button");
+}
+
+function handleDeerLockChipClick() {
+  activateDeerHardLock("deer");
 }
 
 function loadState() {
@@ -892,6 +946,7 @@ function render(state) {
     applyLockUi(false);
     els.saveBtn.disabled = false;
     syncEvidenceButtonsWithSaveState();
+    syncDeerGuardUi(null);
     hideAlert();
     renderEvidence(null);
     return;
@@ -906,6 +961,7 @@ function render(state) {
   els.saveBtn.disabled = locked || els.saveBtn.dataset.busy === "1";
   els.refreshBtn.disabled = els.refreshBtn.dataset.busy === "1";
   syncEvidenceButtonsWithSaveState();
+  syncDeerGuardUi(state);
 
   els.cycleView.textContent = planLabel(state.planDays || 30);
   els.dueTime.textContent = `到期时间：${formatTs(state.dueAt)}`;
@@ -988,7 +1044,11 @@ async function triggerBreachNotice(state, reason, byManual) {
 async function handleSave() {
   const prev = loadState();
   if (isConfigLocked(prev)) {
-    addLog("当前周期未到期，配置已锁定，暂不可修改。");
+    if (isDeerHardLockActive(prev)) {
+      addLog("鹿锁已启用，本周期必须等到到期后才可修改。");
+    } else {
+      addLog("当前周期未到期，配置已锁定，暂不可修改。");
+    }
     render(prev);
     return;
   }
@@ -1022,6 +1082,7 @@ async function handleSave() {
       noticeCycleStartAt: null,
       lastNoticeAt: null,
       configLocked: true,
+      deerHardLock: false,
       cloudOnly: true,
       latestResultText: "初始化完成",
       lastStatus: "ok",
@@ -1139,6 +1200,12 @@ els.refreshBtn.addEventListener("click", handleManualRefresh);
 els.statusPill.addEventListener("click", handleStatusPillUnlockTap);
 if (els.wolfUnlockChip) {
   els.wolfUnlockChip.addEventListener("click", handleWolfUnlockTap);
+}
+if (els.deerGuardBtn) {
+  els.deerGuardBtn.addEventListener("click", handleDeerGuardClick);
+}
+if (els.deerLockChip) {
+  els.deerLockChip.addEventListener("click", handleDeerLockChipClick);
 }
 if (els.evidencePickBtn) {
   els.evidencePickBtn.addEventListener("click", handlePickEvidenceImage);
