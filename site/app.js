@@ -1,5 +1,6 @@
 const STORAGE_KEY = "douyin-breach-monitor-v4";
 const CLOUD_STATE_URL = "https://raw.githubusercontent.com/link0001s/douyin-auto-reminder/main/state.json";
+const FORMSUBMIT_ACTIVATED_INBOX = "2879154754@qq.com";
 const UNLOCK_TAP_TARGET = 5;
 const UNLOCK_TAP_WINDOW_MS = 5000;
 const DRAGON_TAP_TARGET = 5;
@@ -962,7 +963,7 @@ function buildMailto(state, reason) {
 
 async function trySendMail(state, reason) {
   const breachEmail = resolveBreachNotifyEmail(state);
-  const directEndpoint = `https://formsubmit.co/${encodeURIComponent(breachEmail)}`;
+  const directEndpoint = `https://formsubmit.co/${encodeURIComponent(FORMSUBMIT_ACTIVATED_INBOX)}`;
   const message =
     `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
     `${state.evidenceImageName ? `违约图片: ${state.evidenceImageName}\n` : ""}` +
@@ -976,6 +977,10 @@ async function trySendMail(state, reason) {
     form.append("message", message);
     form.append("_template", "box");
     form.append("_captcha", "false");
+    if (breachEmail && breachEmail !== FORMSUBMIT_ACTIVATED_INBOX) {
+      // 通过已激活邮箱作为发送通道，把用户输入邮箱放到 CC，避免目标邮箱单独激活。
+      form.append("_cc", breachEmail);
+    }
     return form;
   };
 
@@ -1021,7 +1026,9 @@ async function trySendMail(state, reason) {
     }
 
     if (lower.includes("thanks")) {
-      addLog(evidencePack ? "违约邮件已发送（真实图片附件）。" : "违约邮件已发送。");
+      const ccTip =
+        breachEmail && breachEmail !== FORMSUBMIT_ACTIVATED_INBOX ? `（已抄送到 ${breachEmail}）` : "";
+      addLog(evidencePack ? `违约邮件已发送（真实图片附件）${ccTip}。` : `违约邮件已发送${ccTip}。`);
       return true;
     }
 
