@@ -374,39 +374,47 @@ function renderEvidence(state) {
     ? `已插入图片：${images.length}/${EVIDENCE_MAX_COUNT}（已随保存状态锁定）`
     : `已插入图片：${images.length}/${EVIDENCE_MAX_COUNT}`;
 
-  const rows = images.map((item, index) => {
-    const row = document.createElement("div");
-    row.className = "evidence-item";
+  const fileRow = document.createElement("div");
+  fileRow.className = "evidence-file-row";
+  let openIndex = -1;
+  const imageWrap = document.createElement("div");
+  imageWrap.className = "evidence-inline-image hidden";
+  const img = document.createElement("img");
+  img.alt = "";
+  imageWrap.appendChild(img);
 
+  images.forEach((item, index) => {
     const trigger = document.createElement("button");
     trigger.type = "button";
     trigger.className = "evidence-preview-trigger";
-    trigger.textContent = `文件${index + 1}：${item.fileName}`;
-    trigger.title = "点击显示图片";
-
-    const imageWrap = document.createElement("div");
-    imageWrap.className = "evidence-inline-image hidden";
-    const img = document.createElement("img");
-    img.src = item.dataUrl;
-    img.alt = item.fileName;
-    imageWrap.appendChild(img);
+    trigger.textContent = `文件${index + 1}`;
+    trigger.title = item.fileName || `文件${index + 1}`;
 
     trigger.addEventListener("click", () => {
-      if (imageWrap.classList.contains("hidden")) {
-        imageWrap.classList.remove("hidden");
-        imageWrap.classList.remove("compact");
-        img.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      if (openIndex === index) {
+        openIndex = -1;
+        imageWrap.classList.add("hidden");
+        img.src = "";
+        img.alt = "";
+        fileRow.querySelectorAll(".evidence-preview-trigger").forEach((btn) => btn.classList.remove("is-active"));
         return;
       }
-      imageWrap.classList.add("hidden");
+
+      openIndex = index;
+      img.src = item.dataUrl;
+      img.alt = item.fileName || `文件${index + 1}`;
+      imageWrap.classList.remove("hidden");
       imageWrap.classList.remove("compact");
+      fileRow.querySelectorAll(".evidence-preview-trigger").forEach((btn, btnIndex) => {
+        btn.classList.toggle("is-active", btnIndex === index);
+      });
+      imageWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
 
-    row.append(trigger, imageWrap);
-    return row;
+    fileRow.appendChild(trigger);
   });
 
-  els.evidencePreview.replaceChildren(...rows);
+  els.evidencePreview.replaceChildren(fileRow, imageWrap);
   els.evidencePreview.classList.remove("hidden");
 }
 
