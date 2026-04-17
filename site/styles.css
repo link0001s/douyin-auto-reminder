@@ -557,6 +557,11 @@ select:focus {
   object-fit: contain;
   border-radius: 8px;
   background: #020713;
+  transition: max-height 0.18s ease;
+}
+
+.evidence-inline-image.compact img {
+  max-height: 120px;
 }
 
 .log {
