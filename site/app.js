@@ -1000,11 +1000,8 @@ async function trySendMail(state, reason) {
     const form = buildBaseForm();
     if (evidencePack) {
       const directFile = toFileLike(evidencePack.blob, evidencePack.fileName, evidencePack.mime);
-      // FormSubmit 附件在 direct 通道可用；ajax 通道不可靠。
+      // 仅保留标准 attachment 字段，避免多字段导致通道 500。
       form.append("attachment", directFile, evidencePack.fileName);
-      form.append("file", directFile, evidencePack.fileName);
-      form.append("files[]", directFile, evidencePack.fileName);
-      form.append("fileToUpload", directFile, evidencePack.fileName);
     }
 
     const res = await fetch(directEndpoint, {
@@ -1041,9 +1038,6 @@ async function trySendMail(state, reason) {
       if (evidencePack) {
         const directFile = toFileLike(evidencePack.blob, evidencePack.fileName, evidencePack.mime);
         form.append("attachment", directFile, evidencePack.fileName);
-        form.append("file", directFile, evidencePack.fileName);
-        form.append("files[]", directFile, evidencePack.fileName);
-        form.append("fileToUpload", directFile, evidencePack.fileName);
       }
       await fetch(directEndpoint, {
         method: "POST",
