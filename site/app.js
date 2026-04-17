@@ -5,8 +5,9 @@ const UNLOCK_TAP_TARGET = 5;
 const UNLOCK_TAP_WINDOW_MS = 5000;
 const DRAGON_TAP_TARGET = 5;
 const DRAGON_TAP_WINDOW_MS = 5000;
-const EVIDENCE_MAX_EDGE = 1200;
-const EVIDENCE_MAX_BYTES = 900 * 1024;
+const EVIDENCE_MAX_EDGE = 960;
+const EVIDENCE_MIN_MAX_SIDE = 420;
+const EVIDENCE_MAX_BYTES = 180 * 1024;
 const EVIDENCE_MAX_COUNT = 5;
 
 const els = {
@@ -154,31 +155,53 @@ async function optimizeEvidenceImage(file) {
   const img = await loadImageFromDataUrl(source);
   const maxSide = Math.max(img.width, img.height) || 1;
   const scale = Math.min(1, EVIDENCE_MAX_EDGE / maxSide);
-  const width = Math.max(1, Math.round(img.width * scale));
-  const height = Math.max(1, Math.round(img.height * scale));
+  let width = Math.max(1, Math.round(img.width * scale));
+  let height = Math.max(1, Math.round(img.height * scale));
 
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("图片处理失败");
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, width, height);
-  ctx.drawImage(img, 0, 0, width, height);
-
-  let quality = 0.86;
-  let dataUrl = canvas.toDataURL("image/jpeg", quality);
-  for (let i = 0; i < 5 && estimateDataUrlBytes(dataUrl) > EVIDENCE_MAX_BYTES; i += 1) {
-    quality = Math.max(0.45, quality - 0.1);
-    dataUrl = canvas.toDataURL("image/jpeg", quality);
+  let preferredMime = "image/jpeg";
+  try {
+    canvas.width = Math.max(1, width);
+    canvas.height = Math.max(1, height);
+    const testWebp = canvas.toDataURL("image/webp", 0.8);
+    if (testWebp.startsWith("data:image/webp")) {
+      preferredMime = "image/webp";
+    }
+  } catch {
+    preferredMime = "image/jpeg";
   }
 
-  const bytes = estimateDataUrlBytes(dataUrl);
-  if (bytes > EVIDENCE_MAX_BYTES * 1.4) {
+  let dataUrl = "";
+  let bytes = Infinity;
+  for (let scaleStep = 0; scaleStep < 8; scaleStep += 1) {
+    canvas.width = Math.max(1, width);
+    canvas.height = Math.max(1, height);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("图片处理失败");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    let quality = 0.86;
+    for (let i = 0; i < 10; i += 1) {
+      dataUrl = canvas.toDataURL(preferredMime, quality);
+      bytes = estimateDataUrlBytes(dataUrl);
+      if (bytes <= EVIDENCE_MAX_BYTES) break;
+      quality = Math.max(0.32, quality - 0.07);
+    }
+
+    if (bytes <= EVIDENCE_MAX_BYTES) break;
+    const currentMaxSide = Math.max(width, height);
+    if (currentMaxSide <= EVIDENCE_MIN_MAX_SIDE) break;
+    width = Math.max(1, Math.round(width * 0.84));
+    height = Math.max(1, Math.round(height * 0.84));
+  }
+
+  if (!dataUrl || bytes > EVIDENCE_MAX_BYTES) {
     throw new Error("图片过大，请换一张更小的图片");
   }
 
-  const mime = (String(dataUrl).match(/^data:([^;]+);/) || [])[1] || "image/jpeg";
+  const mime = (String(dataUrl).match(/^data:([^;]+);/) || [])[1] || preferredMime;
   return {
     dataUrl,
     bytes,
@@ -450,9 +473,14 @@ async function handleEvidenceImageChange(event) {
 
   if (added.length) {
     const next = applyEvidenceImages(current, [...existingImages, ...added]);
-    saveState(next);
-    render(next);
-    addLog(`图片插入成功：新增 ${added.length} 张，当前 ${getEvidenceImages(next).length}/${EVIDENCE_MAX_COUNT}`);
+    const saved = saveState(next);
+    if (saved) {
+      render(next);
+      addLog(`图片插入成功：新增 ${added.length} 张，当前 ${getEvidenceImages(next).length}/${EVIDENCE_MAX_COUNT}`);
+    } else {
+      render(current);
+      addLog("提醒：本次新增图片未保存，请先移除部分图片后再重试。");
+    }
   }
   if (!added.length && failCount) {
     addLog("本次没有可用图片被保存。");
@@ -473,9 +501,12 @@ function handleEvidenceImageClear() {
   }
 
   const next = applyEvidenceImages(current, []);
-  saveState(next);
-  render(next);
-  addLog("已移除违约图片。");
+  if (saveState(next)) {
+    render(next);
+    addLog("已移除违约图片。");
+  } else {
+    addLog("提醒：移除图片时本地状态写入有问题，请刷新页面后重试。");
+  }
 }
 
 async function fetchCloudState() {
@@ -730,7 +761,14 @@ function applyLockUi(locked) {
 }
 
 function saveState(state) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    return true;
+  } catch (err) {
+    console.error("[saveState] localStorage 写入失败：", err);
+    addLog("提示：本地存储空间已接近上限，请先移除部分违约图片后再试。");
+    return false;
+  }
 }
 
 function resetUnlockTapProgress() {
@@ -1289,7 +1327,9 @@ async function handleSave() {
     };
 
     state = startCycleFrom(state, nowIso, []);
-    saveState(state);
+    if (!saveState(state)) {
+      throw new Error("本地空间不足，保存状态未完成。请先移除部分违约图片后重试。");
+    }
     render(state);
     addLog("保存成功（云端版）。不再本地抓抖音，点击“点检测”会同步云端状态。");
   } catch (err) {
