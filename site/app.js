@@ -32,7 +32,6 @@ const els = {
   evidenceClearBtn: document.getElementById("evidenceClearBtn"),
   evidenceHint: document.getElementById("evidenceHint"),
   evidencePreview: document.getElementById("evidencePreview"),
-  evidencePreviewImg: document.getElementById("evidencePreviewImg"),
   deerGuardBtn: document.getElementById("deerGuardBtn"),
   deerLockChip: document.getElementById("deerLockChip"),
 };
@@ -204,7 +203,6 @@ function renderEvidence(state) {
   if (
     !els.evidenceHint ||
     !els.evidencePreview ||
-    !els.evidencePreviewImg ||
     !els.evidenceClearBtn ||
     !els.evidencePickBtn
   ) {
@@ -216,17 +214,15 @@ function renderEvidence(state) {
   if (!hasImage) {
     els.evidenceHint.textContent = locked ? "配置已锁定，违约图片不可更改。" : "未插入图片，违约邮件只发送文字。";
     els.evidencePreview.classList.add("hidden");
-    els.evidencePreviewImg.removeAttribute("src");
+    els.evidencePreview.textContent = "";
     return;
   }
 
   const imageName = state.evidenceImageName || "evidence-image.webp";
-  const size = Number(state.evidenceImageBytes || estimateDataUrlBytes(state.evidenceImageDataUrl));
-  const kb = Math.max(1, Math.round(size / 1024));
   els.evidenceHint.textContent = locked
-    ? `已插入图片：${imageName}（${kb}KB，已随保存状态锁定）`
-    : `已插入图片：${imageName}（${kb}KB）`;
-  els.evidencePreviewImg.src = state.evidenceImageDataUrl;
+    ? `已插入图片：${imageName}（已随保存状态锁定）`
+    : `已插入图片：${imageName}`;
+  els.evidencePreview.textContent = `文件名：${imageName}`;
   els.evidencePreview.classList.remove("hidden");
 }
 
