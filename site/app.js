@@ -909,32 +909,51 @@ function buildMailto(state, reason) {
 
 async function trySendMail(state, reason) {
   const breachEmail = resolveBreachNotifyEmail(state);
-  const endpoint = `https://formsubmit.co/ajax/${encodeURIComponent(breachEmail)}`;
+  const encodedEmail = encodeURIComponent(breachEmail);
+  const ajaxEndpoint = `https://formsubmit.co/ajax/${encodedEmail}`;
+  const directEndpoint = `https://formsubmit.co/${encodedEmail}`;
   const message =
     `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
     `${state.evidenceImageName ? `违约图片: ${state.evidenceImageName}\n` : ""}` +
     `本周期新增: ${state.lastKnownNewCount || 0}/${state.requiredVideos}\n` +
     `周期开始: ${formatTs(state.cycleStartAt)}\n周期截止: ${formatTs(state.dueAt)}`;
 
-  const form = new FormData();
-  form.append("_subject", `[抖音违约提醒] ${new Date().toLocaleDateString("zh-CN")}`);
-  form.append("name", "抖音违约监测台");
-  form.append("message", message);
-  form.append("_template", "box");
-  form.append("_captcha", "false");
+  const buildBaseForm = () => {
+    const form = new FormData();
+    form.append("_subject", `[抖音违约提醒] ${new Date().toLocaleDateString("zh-CN")}`);
+    form.append("name", "抖音违约监测台");
+    form.append("message", message);
+    form.append("_template", "box");
+    form.append("_captcha", "false");
+    return form;
+  };
 
   if (state.evidenceImageDataUrl) {
     try {
       const image = dataUrlToBlob(state.evidenceImageDataUrl);
       const fileName = buildEvidenceName(state.evidenceImageName || "evidence-image", image.mime);
-      form.append("attachment", image.blob, fileName);
-    } catch {
-      addLog("违约图片附加失败，已回退为纯文字邮件。");
+      const directForm = buildBaseForm();
+      directForm.append("attachment", image.blob, fileName);
+      directForm.append("file", image.blob, fileName);
+      directForm.append("files[]", image.blob, fileName);
+
+      await fetch(directEndpoint, {
+        method: "POST",
+        mode: "no-cors",
+        body: directForm,
+      });
+
+      addLog("违约图片直发通道已提交。");
+      return true;
+    } catch (err) {
+      addLog(`违约图片直发失败，回退文字通道: ${String(err)}`);
     }
   }
 
+  const form = buildBaseForm();
+
   try {
-    const res = await fetch(endpoint, {
+    const res = await fetch(ajaxEndpoint, {
       method: "POST",
       headers: {
         Accept: "application/json",
