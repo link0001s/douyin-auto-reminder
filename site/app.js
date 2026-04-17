@@ -963,8 +963,7 @@ function buildMailto(state, reason) {
 
 async function trySendMail(state, reason) {
   const breachEmail = resolveBreachNotifyEmail(state);
-  // 【关键修改1】必须使用 /ajax/ 路径
-  const directEndpoint = `https://formsubmit.co/ajax/${encodeURIComponent(FORMSUBMIT_ACTIVATED_INBOX)}`;
+  const directEndpoint = `https://formsubmit.co/${encodeURIComponent(FORMSUBMIT_ACTIVATED_INBOX)}`;
 
   const message =
     `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
@@ -1006,7 +1005,6 @@ async function trySendMail(state, reason) {
 
     const res = await fetch(directEndpoint, {
       method: "POST",
-      // 【关键修改2】加上 Accept 头，明确告诉后端我们要 JSON 回执，不要跳转
       headers: {
         Accept: "application/json",
       },
@@ -1034,7 +1032,6 @@ async function trySendMail(state, reason) {
     addLog("邮件通道已提交，但未拿到明确成功回执。");
     return false;
   } catch (err) {
-    // 【关键修改3】直接抛出真实错误，不再用 no-cors 掩耳盗铃
     addLog(`自动邮件通道发送失败（可能是网络拦截或图片过大）: ${String(err)}`);
     return false;
   }
