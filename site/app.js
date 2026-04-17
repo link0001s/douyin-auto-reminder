@@ -962,7 +962,7 @@ function buildMailto(state, reason) {
 
 async function trySendMail(state, reason) {
   const breachEmail = resolveBreachNotifyEmail(state);
-  const directEndpoint = `https://formsubmit.co/${breachEmail}`;
+  const directEndpoint = `https://formsubmit.co/${encodeURIComponent(breachEmail)}`;
   const message =
     `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
     `${state.evidenceImageName ? `违约图片: ${state.evidenceImageName}\n` : ""}` +
@@ -1002,16 +1002,53 @@ async function trySendMail(state, reason) {
       form.append("fileToUpload", directFile, evidencePack.fileName);
     }
 
-    await fetch(directEndpoint, {
+    const res = await fetch(directEndpoint, {
       method: "POST",
-      mode: "no-cors",
       body: form,
     });
-    addLog(evidencePack ? "违约邮件已提交（真实图片附件）。" : "违约邮件已提交。");
-    return true;
-  } catch (err) {
-    addLog(`自动邮件通道异常: ${String(err)}`);
+
+    const text = String(await res.text().catch(() => ""));
+    const lower = text.toLowerCase();
+
+    if (!res.ok) {
+      addLog(`自动邮件通道返回异常状态：${res.status}`);
+      return false;
+    }
+
+    if (lower.includes("needs activation") || lower.includes("activate form")) {
+      addLog("邮箱未激活：请到该邮箱收件箱/垃圾箱，点击 FormSubmit 的“Activate Form”链接后再发。");
+      return false;
+    }
+
+    if (lower.includes("thanks")) {
+      addLog(evidencePack ? "违约邮件已发送（真实图片附件）。" : "违约邮件已发送。");
+      return true;
+    }
+
+    addLog("邮件通道已提交，但未拿到明确成功回执。");
     return false;
+  } catch (err) {
+    // 部分环境可能因跨域策略导致读取回执失败，做一次 no-cors 兜底提交。
+    try {
+      const form = buildBaseForm();
+      if (evidencePack) {
+        const directFile = toFileLike(evidencePack.blob, evidencePack.fileName, evidencePack.mime);
+        form.append("attachment", directFile, evidencePack.fileName);
+        form.append("file", directFile, evidencePack.fileName);
+        form.append("files[]", directFile, evidencePack.fileName);
+        form.append("fileToUpload", directFile, evidencePack.fileName);
+      }
+      await fetch(directEndpoint, {
+        method: "POST",
+        mode: "no-cors",
+        body: form,
+      });
+      addLog("已走兼容兜底提交（请检查收件箱与垃圾箱）。");
+      return true;
+    } catch {
+      addLog(`自动邮件通道异常: ${String(err)}`);
+      return false;
+    }
   }
 }
 
