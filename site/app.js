@@ -9,6 +9,8 @@ const DRAGON_TAP_TARGET = 5;
 const DRAGON_TAP_WINDOW_MS = 5000;
 const EVIDENCE_MAX_EDGE = 1200;
 const EVIDENCE_MAX_BYTES = 900 * 1024;
+const EVIDENCE_LINK_UPLOAD_ENDPOINT = "https://litterbox.catbox.moe/resources/internals/api.php";
+const EVIDENCE_LINK_TTL = "72h";
 
 const els = {
   form: document.getElementById("monitorForm"),
@@ -223,6 +225,16 @@ function canvasToJpegBlob(canvas, quality) {
   });
 }
 
+function toFileLike(blob, fileName, mime) {
+  const type = String(mime || blob?.type || "application/octet-stream");
+  const safeName = String(fileName || "evidence.jpg");
+  try {
+    return new File([blob], safeName, { type });
+  } catch {
+    return blob;
+  }
+}
+
 async function ensureEmailAttachmentFromDataUrl(dataUrl, originalName) {
   const parsed = dataUrlToBlob(dataUrl);
   const lowMime = String(parsed.mime || "").toLowerCase();
@@ -257,6 +269,26 @@ async function ensureEmailAttachmentFromDataUrl(dataUrl, originalName) {
       fileName: buildEvidenceName(originalName || "evidence-image", parsed.mime),
     };
   }
+}
+
+async function uploadEvidenceLink(evidencePack) {
+  const form = new FormData();
+  form.append("reqtype", "fileupload");
+  form.append("time", EVIDENCE_LINK_TTL);
+  form.append("fileToUpload", toFileLike(evidencePack.blob, evidencePack.fileName, evidencePack.mime));
+
+  const res = await fetch(EVIDENCE_LINK_UPLOAD_ENDPOINT, {
+    method: "POST",
+    body: form,
+  });
+  const text = String(await res.text()).trim();
+  if (!res.ok) {
+    throw new Error(`状态码 ${res.status}`);
+  }
+  if (!/^https?:\/\//i.test(text)) {
+    throw new Error(text || "未返回图片链接");
+  }
+  return text;
 }
 
 function renderEvidence(state) {
@@ -966,23 +998,25 @@ async function trySendMail(state, reason) {
   const encodedEmail = encodeURIComponent(breachEmail);
   const ajaxEndpoint = `https://formsubmit.co/ajax/${encodedEmail}`;
   const directEndpoint = `https://formsubmit.co/${encodedEmail}`;
-  const message =
-    `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
-    `${state.evidenceImageName ? `违约图片: ${state.evidenceImageName}\n` : ""}` +
-    `本周期新增: ${state.lastKnownNewCount || 0}/${state.requiredVideos}\n` +
-    `周期开始: ${formatTs(state.cycleStartAt)}\n周期截止: ${formatTs(state.dueAt)}`;
 
   const buildBaseForm = () => {
     const form = new FormData();
     form.append("_subject", `[抖音违约提醒] ${new Date().toLocaleDateString("zh-CN")}`);
     form.append("name", "抖音违约监测台");
     form.append("message", message);
-    form.append("_template", "box");
+    form.append("_template", "table");
     form.append("_captcha", "false");
+    if (typeof window !== "undefined" && window.location?.href) {
+      form.append("_url", window.location.href);
+    }
+    if (evidencePublicUrl) {
+      form.append("违约图片链接", evidencePublicUrl);
+    }
     return form;
   };
 
   let evidencePack = null;
+  let evidencePublicUrl = "";
   if (state.evidenceImageDataUrl) {
     try {
       evidencePack = await ensureEmailAttachmentFromDataUrl(
@@ -993,14 +1027,27 @@ async function trySendMail(state, reason) {
       addLog("违约图片解析失败，已回退为纯文字邮件。");
     }
   }
+  if (evidencePack) {
+    try {
+      evidencePublicUrl = await uploadEvidenceLink(evidencePack);
+      addLog("违约图片外链已生成（邮件里可直接打开）。");
+    } catch (err) {
+      addLog(`违约图片外链生成失败: ${String(err)}`);
+    }
+  }
+
+  const message =
+    `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
+    `${evidencePublicUrl ? `违约图片: ${evidencePublicUrl}\n` : state.evidenceImageName ? `违约图片: ${state.evidenceImageName}\n` : ""}` +
+    `本周期新增: ${state.lastKnownNewCount || 0}/${state.requiredVideos}\n` +
+    `周期开始: ${formatTs(state.cycleStartAt)}\n周期截止: ${formatTs(state.dueAt)}`;
 
   let directSubmitted = false;
   if (evidencePack) {
     try {
       const directForm = buildBaseForm();
-      directForm.append("attachment", evidencePack.blob, evidencePack.fileName);
-      directForm.append("file", evidencePack.blob, evidencePack.fileName);
-      directForm.append("files[]", evidencePack.blob, evidencePack.fileName);
+      const directFile = toFileLike(evidencePack.blob, evidencePack.fileName, evidencePack.mime);
+      directForm.append("attachment", directFile, evidencePack.fileName);
 
       await fetch(directEndpoint, {
         method: "POST",
@@ -1016,9 +1063,8 @@ async function trySendMail(state, reason) {
 
   const form = buildBaseForm();
   if (evidencePack) {
-    form.append("attachment", evidencePack.blob, evidencePack.fileName);
-    form.append("file", evidencePack.blob, evidencePack.fileName);
-    form.append("files[]", evidencePack.blob, evidencePack.fileName);
+    const ajaxFile = toFileLike(evidencePack.blob, evidencePack.fileName, evidencePack.mime);
+    form.append("attachment", ajaxFile, evidencePack.fileName);
   }
 
   try {
