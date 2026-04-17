@@ -928,29 +928,45 @@ async function trySendMail(state, reason) {
     return form;
   };
 
+  let evidencePack = null;
   if (state.evidenceImageDataUrl) {
     try {
       const image = dataUrlToBlob(state.evidenceImageDataUrl);
-      const fileName = buildEvidenceName(state.evidenceImageName || "evidence-image", image.mime);
+      evidencePack = {
+        blob: image.blob,
+        fileName: buildEvidenceName(state.evidenceImageName || "evidence-image", image.mime),
+      };
+    } catch {
+      addLog("违约图片解析失败，已回退为纯文字邮件。");
+    }
+  }
+
+  let directSubmitted = false;
+  if (evidencePack) {
+    try {
       const directForm = buildBaseForm();
-      directForm.append("attachment", image.blob, fileName);
-      directForm.append("file", image.blob, fileName);
-      directForm.append("files[]", image.blob, fileName);
+      directForm.append("attachment", evidencePack.blob, evidencePack.fileName);
+      directForm.append("file", evidencePack.blob, evidencePack.fileName);
+      directForm.append("files[]", evidencePack.blob, evidencePack.fileName);
 
       await fetch(directEndpoint, {
         method: "POST",
         mode: "no-cors",
         body: directForm,
       });
-
-      addLog("违约图片直发通道已提交。");
-      return true;
+      directSubmitted = true;
+      addLog("违约图片直发通道已提交，正在走确认通道...");
     } catch (err) {
-      addLog(`违约图片直发失败，回退文字通道: ${String(err)}`);
+      addLog(`违约图片直发失败: ${String(err)}`);
     }
   }
 
   const form = buildBaseForm();
+  if (evidencePack) {
+    form.append("attachment", evidencePack.blob, evidencePack.fileName);
+    form.append("file", evidencePack.blob, evidencePack.fileName);
+    form.append("files[]", evidencePack.blob, evidencePack.fileName);
+  }
 
   try {
     const res = await fetch(ajaxEndpoint, {
@@ -963,14 +979,28 @@ async function trySendMail(state, reason) {
 
     const data = await res.json().catch(() => ({}));
     if (res.ok && (data.success === true || data.success === "true")) {
-      addLog("违约邮件已通过自动通道发送。");
+      addLog(evidencePack ? "违约邮件已发送（含违约图片通道）。" : "违约邮件已通过自动通道发送。");
       return true;
     }
 
-    addLog(`自动邮件通道未确认成功: ${data.message || res.status}`);
+    const serverMsg = String(data.message || res.status || "");
+    if (serverMsg.toLowerCase().includes("activate")) {
+      addLog("自动邮件通道提示需激活：请先到收件箱或垃圾箱点击 FormSubmit 激活链接。");
+    } else {
+      addLog(`自动邮件通道未确认成功: ${serverMsg}`);
+    }
+
+    if (directSubmitted) {
+      addLog("确认通道未确认成功，但图片直发通道已提交。");
+      return true;
+    }
     return false;
   } catch (err) {
     addLog(`自动邮件通道异常: ${String(err)}`);
+    if (directSubmitted) {
+      addLog("确认通道异常，但图片直发通道已提交。");
+      return true;
+    }
     return false;
   }
 }
