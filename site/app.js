@@ -94,12 +94,16 @@ function setBusy(busy) {
   const locked = isConfigLocked(state);
   els.saveBtn.disabled = busy || locked;
   els.refreshBtn.disabled = busy;
+  syncEvidenceButtonsWithSaveState();
+}
+
+function syncEvidenceButtonsWithSaveState() {
+  const saveDisabled = Boolean(els.saveBtn?.disabled);
   if (els.evidencePickBtn) {
-    els.evidencePickBtn.disabled = busy || locked;
+    els.evidencePickBtn.disabled = saveDisabled;
   }
   if (els.evidenceClearBtn) {
-    const hasImage = Boolean(state?.evidenceImageDataUrl);
-    els.evidenceClearBtn.disabled = busy || locked || !hasImage;
+    els.evidenceClearBtn.disabled = saveDisabled;
   }
 }
 
@@ -211,8 +215,6 @@ function renderEvidence(state) {
     els.evidenceHint.textContent = locked ? "配置已锁定，违约图片不可更改。" : "未插入图片，违约邮件只发送文字。";
     els.evidencePreview.classList.add("hidden");
     els.evidencePreviewImg.removeAttribute("src");
-    els.evidenceClearBtn.disabled = true;
-    els.evidencePickBtn.disabled = locked;
     return;
   }
 
@@ -224,8 +226,6 @@ function renderEvidence(state) {
     : `已插入图片：${imageName}（${kb}KB）`;
   els.evidencePreviewImg.src = state.evidenceImageDataUrl;
   els.evidencePreview.classList.remove("hidden");
-  els.evidencePickBtn.disabled = locked;
-  els.evidenceClearBtn.disabled = locked;
 }
 
 function handlePickEvidenceImage() {
@@ -283,7 +283,10 @@ function handleEvidenceImageClear() {
     addLog("配置已锁定，违约图片不可更改。");
     return;
   }
-  if (!current.evidenceImageDataUrl) return;
+  if (!current.evidenceImageDataUrl) {
+    addLog("当前没有可移除的违约图片。");
+    return;
+  }
 
   const next = { ...current };
   delete next.evidenceImageDataUrl;
@@ -888,6 +891,7 @@ function render(state) {
     els.latestResult.textContent = "状态：待初始化";
     applyLockUi(false);
     els.saveBtn.disabled = false;
+    syncEvidenceButtonsWithSaveState();
     hideAlert();
     renderEvidence(null);
     return;
@@ -901,6 +905,7 @@ function render(state) {
   applyLockUi(locked);
   els.saveBtn.disabled = locked || els.saveBtn.dataset.busy === "1";
   els.refreshBtn.disabled = els.refreshBtn.dataset.busy === "1";
+  syncEvidenceButtonsWithSaveState();
 
   els.cycleView.textContent = planLabel(state.planDays || 30);
   els.dueTime.textContent = `到期时间：${formatTs(state.dueAt)}`;
