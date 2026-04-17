@@ -973,9 +973,7 @@ function buildMailto(state, reason) {
 
 async function trySendMail(state, reason) {
   const breachEmail = resolveBreachNotifyEmail(state);
-  const encodedEmail = encodeURIComponent(breachEmail);
-  const ajaxEndpoint = `https://formsubmit.co/ajax/${encodedEmail}`;
-  const directEndpoint = `https://formsubmit.co/${encodedEmail}`;
+  const directEndpoint = `https://formsubmit.co/${breachEmail}`;
   const message =
     `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
     `${state.evidenceImageName ? `违约图片: ${state.evidenceImageName}\n` : ""}` +
@@ -1004,70 +1002,26 @@ async function trySendMail(state, reason) {
     }
   }
 
-  let directSubmitted = false;
-  if (evidencePack) {
-    try {
-      const directForm = buildBaseForm();
-      const directFile = toFileLike(evidencePack.blob, evidencePack.fileName, evidencePack.mime);
-      directForm.append("attachment", directFile, evidencePack.fileName);
-      directForm.append("file", directFile, evidencePack.fileName);
-      directForm.append("files[]", directFile, evidencePack.fileName);
-      directForm.append("fileToUpload", directFile, evidencePack.fileName);
-
-      await fetch(directEndpoint, {
-        method: "POST",
-        mode: "no-cors",
-        body: directForm,
-      });
-      directSubmitted = true;
-      addLog("违约图片直发通道已提交，正在走确认通道...");
-    } catch (err) {
-      addLog(`违约图片直发失败: ${String(err)}`);
-    }
-  }
-
-  const form = buildBaseForm();
-  if (evidencePack) {
-    const ajaxFile = toFileLike(evidencePack.blob, evidencePack.fileName, evidencePack.mime);
-    form.append("attachment", ajaxFile, evidencePack.fileName);
-    form.append("file", ajaxFile, evidencePack.fileName);
-    form.append("files[]", ajaxFile, evidencePack.fileName);
-    form.append("fileToUpload", ajaxFile, evidencePack.fileName);
-  }
-
   try {
-    const res = await fetch(ajaxEndpoint, {
+    const form = buildBaseForm();
+    if (evidencePack) {
+      const directFile = toFileLike(evidencePack.blob, evidencePack.fileName, evidencePack.mime);
+      // FormSubmit 附件在 direct 通道可用；ajax 通道不可靠。
+      form.append("attachment", directFile, evidencePack.fileName);
+      form.append("file", directFile, evidencePack.fileName);
+      form.append("files[]", directFile, evidencePack.fileName);
+      form.append("fileToUpload", directFile, evidencePack.fileName);
+    }
+
+    await fetch(directEndpoint, {
       method: "POST",
-      headers: {
-        Accept: "application/json",
-      },
+      mode: "no-cors",
       body: form,
     });
-
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && (data.success === true || data.success === "true")) {
-      addLog(evidencePack ? "违约邮件已发送（含违约图片通道）。" : "违约邮件已通过自动通道发送。");
-      return true;
-    }
-
-    const serverMsg = String(data.message || res.status || "");
-    if (serverMsg.toLowerCase().includes("activate")) {
-      addLog("自动邮件通道提示需激活：请先到收件箱或垃圾箱点击 FormSubmit 激活链接。");
-    } else {
-      addLog(`自动邮件通道未确认成功: ${serverMsg}`);
-    }
-
-    if (directSubmitted) {
-      addLog("确认通道未确认成功，但图片直发通道已提交。");
-      return true;
-    }
-    return false;
+    addLog(evidencePack ? "违约邮件已提交（真实图片附件）。" : "违约邮件已提交。");
+    return true;
   } catch (err) {
     addLog(`自动邮件通道异常: ${String(err)}`);
-    if (directSubmitted) {
-      addLog("确认通道异常，但图片直发通道已提交。");
-      return true;
-    }
     return false;
   }
 }
