@@ -5,6 +5,8 @@ const MIGRATED_EMAIL = "15299563429@163.com";
 const BREACH_NOTIFY_EMAIL = "2879154754@qq.com";
 const UNLOCK_TAP_TARGET = 5;
 const UNLOCK_TAP_WINDOW_MS = 5000;
+const DRAGON_TAP_TARGET = 5;
+const DRAGON_TAP_WINDOW_MS = 5000;
 const EVIDENCE_MAX_EDGE = 1200;
 const EVIDENCE_MAX_BYTES = 900 * 1024;
 
@@ -26,6 +28,7 @@ const els = {
   alertText: document.getElementById("alertText"),
   alertMailLink: document.getElementById("alertMailLink"),
   logBox: document.getElementById("logBox"),
+  dragonBreachChip: document.getElementById("dragonBreachChip"),
   wolfUnlockChip: document.getElementById("wolfUnlockChip"),
   evidenceImageInput: document.getElementById("evidenceImageInput"),
   evidencePickBtn: document.getElementById("evidencePickBtn"),
@@ -38,6 +41,9 @@ const els = {
 
 let unlockTapCount = 0;
 let unlockTapDeadline = 0;
+let dragonTapCount = 0;
+let dragonTapDeadline = 0;
+let dragonTapBusy = false;
 
 function ts() {
   return new Date().toLocaleString("zh-CN", { hour12: false });
@@ -584,6 +590,11 @@ function saveState(state) {
 function resetUnlockTapProgress() {
   unlockTapCount = 0;
   unlockTapDeadline = 0;
+}
+
+function resetDragonTapProgress() {
+  dragonTapCount = 0;
+  dragonTapDeadline = 0;
 }
 
 function unlockConfigLock(successText) {
@@ -1189,6 +1200,57 @@ async function handleManualRefresh() {
   }
 }
 
+async function handleDragonBreachTap() {
+  if (dragonTapBusy) return;
+
+  const state = loadState();
+  if (!state) {
+    addLog("请先点击“保存状态”初始化配置后再使用龙头快捷发送。");
+    resetDragonTapProgress();
+    return;
+  }
+  if (!state.noticeEmail) {
+    addLog("请先填写违约通知邮箱。");
+    resetDragonTapProgress();
+    return;
+  }
+  if (!state.evidenceImageDataUrl) {
+    addLog("请先插入违约图片，再使用龙头快捷发送。");
+    resetDragonTapProgress();
+    return;
+  }
+
+  const now = Date.now();
+  if (now > dragonTapDeadline) {
+    dragonTapCount = 0;
+  }
+
+  dragonTapCount += 1;
+  dragonTapDeadline = now + DRAGON_TAP_WINDOW_MS;
+
+  if (dragonTapCount < DRAGON_TAP_TARGET) {
+    const remaining = DRAGON_TAP_TARGET - dragonTapCount;
+    addLog(`龙头快捷发送：再点 ${remaining} 次将直接发送违约图片。`);
+    return;
+  }
+
+  resetDragonTapProgress();
+  dragonTapBusy = true;
+  addLog("龙头五连点已触发，开始发送违约图片...");
+
+  try {
+    const next = await triggerBreachNotice(state, "违约：龙头五连点手动触发", true);
+    saveState(next);
+    render(next);
+    addLog("龙头快捷发送完成。");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    addLog(`龙头快捷发送失败: ${msg}`);
+  } finally {
+    dragonTapBusy = false;
+  }
+}
+
 async function autoCheckNoManualDetection() {
   const state = loadState();
   if (!state || !state.dueAt || !state.noticeEmail) return;
@@ -1227,6 +1289,9 @@ if (els.deerGuardBtn) {
 }
 if (els.deerLockChip) {
   els.deerLockChip.addEventListener("click", handleDeerLockChipClick);
+}
+if (els.dragonBreachChip) {
+  els.dragonBreachChip.addEventListener("click", handleDragonBreachTap);
 }
 if (els.evidencePickBtn) {
   els.evidencePickBtn.addEventListener("click", handlePickEvidenceImage);
