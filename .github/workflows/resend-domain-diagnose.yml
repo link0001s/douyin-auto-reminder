@@ -1,0 +1,37 @@
+name: Resend Domain Diagnose
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Query Resend domains
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          key = os.getenv('RESEND_API_KEY', '').strip()
+          if not key:
+              raise SystemExit('Missing RESEND_API_KEY')
+
+          req = urllib.request.Request(
+              'https://api.resend.com/domains',
+              headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'},
+              method='GET',
+          )
+
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              payload = json.loads(resp.read().decode('utf-8'))
+
+          print(json.dumps(payload, ensure_ascii=False, indent=2))
+          PY
