@@ -516,6 +516,12 @@ select:focus {
   display: none;
 }
 
+.evidence-item + .evidence-item {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(79, 122, 180, 0.35);
+}
+
 .evidence-preview-trigger {
   appearance: none;
   border: 0;

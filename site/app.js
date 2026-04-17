@@ -7,6 +7,7 @@ const DRAGON_TAP_TARGET = 5;
 const DRAGON_TAP_WINDOW_MS = 5000;
 const EVIDENCE_MAX_EDGE = 1200;
 const EVIDENCE_MAX_BYTES = 900 * 1024;
+const EVIDENCE_MAX_COUNT = 5;
 
 const els = {
   form: document.getElementById("monitorForm"),
@@ -267,6 +268,66 @@ async function ensureEmailAttachmentFromDataUrl(dataUrl, originalName) {
   }
 }
 
+function normalizeEvidenceItem(raw, fallbackName = "evidence-image") {
+  if (!raw || typeof raw !== "object") return null;
+  const dataUrl = String(raw.dataUrl || raw.evidenceImageDataUrl || "").trim();
+  if (!dataUrl.startsWith("data:image/")) return null;
+  const detectedMime = (String(dataUrl).match(/^data:([^;]+);/) || [])[1] || "image/jpeg";
+  const mime = String(raw.mime || raw.evidenceImageMime || detectedMime);
+  const fileName = buildEvidenceName(raw.fileName || raw.evidenceImageName || fallbackName, mime);
+  const bytes = Number(raw.bytes || raw.evidenceImageBytes || estimateDataUrlBytes(dataUrl));
+  const updatedAt = String(raw.updatedAt || raw.evidenceImageUpdatedAt || new Date().toISOString());
+  return { dataUrl, fileName, mime, bytes, updatedAt };
+}
+
+function getEvidenceImages(state) {
+  const fromList = [];
+  if (Array.isArray(state?.evidenceImages)) {
+    state.evidenceImages.forEach((item, index) => {
+      if (fromList.length >= EVIDENCE_MAX_COUNT) return;
+      const normalized = normalizeEvidenceItem(item, `evidence-image-${index + 1}`);
+      if (normalized) fromList.push(normalized);
+    });
+  }
+  if (fromList.length) return fromList;
+
+  if (state?.evidenceImageDataUrl) {
+    const normalized = normalizeEvidenceItem(state, "evidence-image-1");
+    return normalized ? [normalized] : [];
+  }
+  return [];
+}
+
+function applyEvidenceImages(state, images) {
+  const next = { ...(state || {}) };
+  const normalized = [];
+  (images || []).forEach((item, index) => {
+    if (normalized.length >= EVIDENCE_MAX_COUNT) return;
+    const parsed = normalizeEvidenceItem(item, `evidence-image-${index + 1}`);
+    if (parsed) normalized.push(parsed);
+  });
+
+  if (!normalized.length) {
+    delete next.evidenceImages;
+    delete next.evidenceImageDataUrl;
+    delete next.evidenceImageName;
+    delete next.evidenceImageMime;
+    delete next.evidenceImageBytes;
+    delete next.evidenceImageUpdatedAt;
+    return next;
+  }
+
+  next.evidenceImages = normalized;
+  const first = normalized[0];
+  // 兼容历史字段，避免旧逻辑读不到图片。
+  next.evidenceImageDataUrl = first.dataUrl;
+  next.evidenceImageName = first.fileName;
+  next.evidenceImageMime = first.mime;
+  next.evidenceImageBytes = first.bytes;
+  next.evidenceImageUpdatedAt = first.updatedAt;
+  return next;
+}
+
 function renderEvidence(state) {
   if (
     !els.evidenceHint ||
@@ -277,45 +338,52 @@ function renderEvidence(state) {
     return;
   }
 
-  const hasImage = Boolean(state?.evidenceImageDataUrl);
+  const images = getEvidenceImages(state);
   const locked = isConfigLocked(state);
-  if (!hasImage) {
-    els.evidenceHint.textContent = locked ? "配置已锁定，违约图片不可更改。" : "未插入图片，违约邮件只发送文字。";
+  if (!images.length) {
+    els.evidenceHint.textContent = locked ? "配置已锁定，违约图片不可更改。" : "未插入图片，违约邮件只发送文字（最多支持5张）。";
     els.evidencePreview.classList.add("hidden");
     els.evidencePreview.textContent = "";
     return;
   }
 
-  const imageName = state.evidenceImageName || "evidence-image.jpg";
   els.evidenceHint.textContent = locked
-    ? `已插入图片：${imageName}（已随保存状态锁定）`
-    : `已插入图片：${imageName}`;
+    ? `已插入图片：${images.length}/${EVIDENCE_MAX_COUNT}（已随保存状态锁定）`
+    : `已插入图片：${images.length}/${EVIDENCE_MAX_COUNT}`;
 
-  const trigger = document.createElement("button");
-  trigger.type = "button";
-  trigger.className = "evidence-preview-trigger";
-  trigger.textContent = `文件名：${imageName}`;
-  trigger.title = "点击显示图片";
+  const rows = images.map((item, index) => {
+    const row = document.createElement("div");
+    row.className = "evidence-item";
 
-  const imageWrap = document.createElement("div");
-  imageWrap.className = "evidence-inline-image hidden";
-  const img = document.createElement("img");
-  img.src = state.evidenceImageDataUrl;
-  img.alt = imageName;
-  imageWrap.appendChild(img);
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "evidence-preview-trigger";
+    trigger.textContent = `文件${index + 1}：${item.fileName}`;
+    trigger.title = "点击显示图片";
 
-  trigger.addEventListener("click", () => {
-    if (imageWrap.classList.contains("hidden")) {
-      imageWrap.classList.remove("hidden");
+    const imageWrap = document.createElement("div");
+    imageWrap.className = "evidence-inline-image hidden";
+    const img = document.createElement("img");
+    img.src = item.dataUrl;
+    img.alt = item.fileName;
+    imageWrap.appendChild(img);
+
+    trigger.addEventListener("click", () => {
+      if (imageWrap.classList.contains("hidden")) {
+        imageWrap.classList.remove("hidden");
+        imageWrap.classList.remove("compact");
+        img.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        return;
+      }
+      imageWrap.classList.add("hidden");
       imageWrap.classList.remove("compact");
-      img.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      return;
-    }
-    imageWrap.classList.add("hidden");
-    imageWrap.classList.remove("compact");
+    });
+
+    row.append(trigger, imageWrap);
+    return row;
   });
 
-  els.evidencePreview.replaceChildren(trigger, imageWrap);
+  els.evidencePreview.replaceChildren(...rows);
   els.evidencePreview.classList.remove("hidden");
 }
 
@@ -331,8 +399,9 @@ function handlePickEvidenceImage() {
 
 async function handleEvidenceImageChange(event) {
   const target = event?.target;
-  const file = target?.files?.[0];
-  if (!file) return;
+  const files = Array.from(target?.files || []);
+  if (!files.length) return;
+
   const state = loadState();
   if (isConfigLocked(state)) {
     addLog("配置已锁定，违约图片不可更改。");
@@ -340,32 +409,56 @@ async function handleEvidenceImageChange(event) {
     return;
   }
 
-  if (!String(file.type || "").startsWith("image/")) {
-    addLog("图片插入失败：请选择图片文件");
+  const current = loadState() || {};
+  const existingImages = getEvidenceImages(current);
+  const freeSlots = EVIDENCE_MAX_COUNT - existingImages.length;
+  if (freeSlots <= 0) {
+    addLog(`违约图片最多支持 ${EVIDENCE_MAX_COUNT} 张，请先移除后再添加。`);
     target.value = "";
     return;
   }
 
-  try {
-    const packed = await optimizeEvidenceImage(file);
-    const current = loadState() || {};
-    const next = {
-      ...current,
-      evidenceImageDataUrl: packed.dataUrl,
-      evidenceImageName: packed.fileName,
-      evidenceImageMime: packed.mime,
-      evidenceImageBytes: packed.bytes,
-      evidenceImageUpdatedAt: new Date().toISOString(),
-    };
+  const queue = files.slice(0, freeSlots);
+  if (files.length > queue.length) {
+    addLog(`最多还能添加 ${freeSlots} 张，其余 ${files.length - queue.length} 张已忽略。`);
+  }
+
+  const added = [];
+  let failCount = 0;
+  for (const file of queue) {
+    if (!String(file.type || "").startsWith("image/")) {
+      failCount += 1;
+      addLog(`图片插入失败：${file.name || "未知文件"} 不是图片`);
+      continue;
+    }
+
+    try {
+      const packed = await optimizeEvidenceImage(file);
+      added.push({
+        dataUrl: packed.dataUrl,
+        fileName: packed.fileName,
+        mime: packed.mime,
+        bytes: packed.bytes,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      failCount += 1;
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog(`图片插入失败：${file.name || "未知文件"} - ${msg}`);
+    }
+  }
+
+  if (added.length) {
+    const next = applyEvidenceImages(current, [...existingImages, ...added]);
     saveState(next);
     render(next);
-    addLog(`图片插入成功：${packed.fileName}`);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    addLog(`图片插入失败: ${msg}`);
-  } finally {
-    target.value = "";
+    addLog(`图片插入成功：新增 ${added.length} 张，当前 ${getEvidenceImages(next).length}/${EVIDENCE_MAX_COUNT}`);
   }
+  if (!added.length && failCount) {
+    addLog("本次没有可用图片被保存。");
+  }
+
+  target.value = "";
 }
 
 function handleEvidenceImageClear() {
@@ -374,17 +467,12 @@ function handleEvidenceImageClear() {
     addLog("配置已锁定，违约图片不可更改。");
     return;
   }
-  if (!current.evidenceImageDataUrl) {
+  if (!getEvidenceImages(current).length) {
     addLog("当前没有可移除的违约图片。");
     return;
   }
 
-  const next = { ...current };
-  delete next.evidenceImageDataUrl;
-  delete next.evidenceImageName;
-  delete next.evidenceImageMime;
-  delete next.evidenceImageBytes;
-  delete next.evidenceImageUpdatedAt;
+  const next = applyEvidenceImages(current, []);
   saveState(next);
   render(next);
   addLog("已移除违约图片。");
@@ -949,8 +1037,9 @@ async function fetchVideoIds(douyinUrl) {
 function buildMailto(state, reason) {
   const breachEmail = resolveBreachNotifyEmail(state);
   const subject = encodeURIComponent(`[抖音违约提醒] ${new Date().toLocaleDateString("zh-CN")}`);
-  const imageLine = state.evidenceImageName
-    ? `违约图片: ${state.evidenceImageName}（自动邮件通道会尝试附图）\n`
+  const evidenceNames = getEvidenceImages(state).map((item) => item.fileName);
+  const imageLine = evidenceNames.length
+    ? `违约图片: ${evidenceNames.join("、")}（自动邮件通道会尝试附图）\n`
     : "";
   const body = encodeURIComponent(
     `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
@@ -964,10 +1053,12 @@ function buildMailto(state, reason) {
 async function trySendMail(state, reason) {
   const breachEmail = resolveBreachNotifyEmail(state);
   const directEndpoint = `https://formsubmit.co/${encodeURIComponent(FORMSUBMIT_ACTIVATED_INBOX)}`;
+  const evidenceImages = getEvidenceImages(state);
+  const evidenceNames = evidenceImages.map((item) => item.fileName);
 
   const message =
     `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
-    `${state.evidenceImageName ? `违约图片: ${state.evidenceImageName}\n` : ""}` +
+    `${evidenceNames.length ? `违约图片: ${evidenceNames.join("、")}\n` : ""}` +
     `本周期新增: ${state.lastKnownNewCount || 0}/${state.requiredVideos}\n` +
     `周期开始: ${formatTs(state.cycleStartAt)}\n周期截止: ${formatTs(state.dueAt)}`;
 
@@ -984,23 +1075,23 @@ async function trySendMail(state, reason) {
     return form;
   };
 
-  let evidencePack = null;
-  if (state.evidenceImageDataUrl) {
+  const evidencePacks = [];
+  for (const image of evidenceImages) {
     try {
-      evidencePack = await ensureEmailAttachmentFromDataUrl(
-        state.evidenceImageDataUrl,
-        state.evidenceImageName || "evidence-image"
-      );
+      const packed = await ensureEmailAttachmentFromDataUrl(image.dataUrl, image.fileName || "evidence-image");
+      evidencePacks.push(packed);
     } catch {
-      addLog("违约图片解析失败，已回退为纯文字邮件。");
+      addLog(`违约图片解析失败：${image.fileName || "未知图片"}，已跳过该图片。`);
     }
   }
 
   try {
     const form = buildBaseForm();
-    if (evidencePack) {
-      const directFile = toFileLike(evidencePack.blob, evidencePack.fileName, evidencePack.mime);
-      form.append("attachment", directFile, evidencePack.fileName);
+    if (evidencePacks.length) {
+      evidencePacks.forEach((pack) => {
+        const directFile = toFileLike(pack.blob, pack.fileName, pack.mime);
+        form.append("attachment", directFile, pack.fileName);
+      });
     }
 
     const res = await fetch(directEndpoint, {
@@ -1025,7 +1116,11 @@ async function trySendMail(state, reason) {
 
     if (data.success === "true") {
       const ccTip = breachEmail && breachEmail !== FORMSUBMIT_ACTIVATED_INBOX ? `（已抄送到 ${breachEmail}）` : "";
-      addLog(evidencePack ? `违约邮件已发送（真实图片附件）${ccTip}。` : `违约邮件已发送${ccTip}。`);
+      addLog(
+        evidencePacks.length
+          ? `违约邮件已发送（图片附件 ${evidencePacks.length} 张）${ccTip}。`
+          : `违约邮件已发送${ccTip}。`
+      );
       return true;
     }
 
@@ -1134,8 +1229,9 @@ function startCycleFrom(state, nowIso, baselineIds) {
 async function triggerBreachNotice(state, reason, byManual) {
   const mailto = buildMailto(state, reason);
   addLog(`违约通知邮箱：${resolveBreachNotifyEmail(state)}`);
-  if (state.evidenceImageDataUrl) {
-    addLog(`违约图片已加入邮件：${state.evidenceImageName || "evidence-image"}`);
+  const evidenceNames = getEvidenceImages(state).map((item) => item.fileName);
+  if (evidenceNames.length) {
+    addLog(`违约图片已加入邮件：${evidenceNames.join("、")}`);
   }
   showAlert(reason, mailto);
 
@@ -1173,15 +1269,7 @@ async function handleSave() {
 
   try {
     const nowIso = new Date().toISOString();
-    const evidenceSeed = prev?.evidenceImageDataUrl
-      ? {
-          evidenceImageDataUrl: prev.evidenceImageDataUrl,
-          evidenceImageName: prev.evidenceImageName,
-          evidenceImageMime: prev.evidenceImageMime,
-          evidenceImageBytes: prev.evidenceImageBytes,
-          evidenceImageUpdatedAt: prev.evidenceImageUpdatedAt,
-        }
-      : {};
+    const evidenceSeed = applyEvidenceImages({}, getEvidenceImages(prev));
     let state = {
       ...input,
       ...evidenceSeed,
@@ -1294,7 +1382,7 @@ async function handleDragonBreachTap() {
     resetDragonTapProgress();
     return;
   }
-  if (!state.evidenceImageDataUrl) {
+  if (!getEvidenceImages(state).length) {
     addLog("请先插入违约图片，再使用龙头快捷发送。");
     resetDragonTapProgress();
     return;

@@ -175,11 +175,11 @@
           <h3>违约图片</h3>
         </div>
         <div class="evidence-actions">
-          <input id="evidenceImageInput" type="file" accept="image/*" hidden />
+          <input id="evidenceImageInput" type="file" accept="image/*" multiple hidden />
           <button id="evidencePickBtn" class="btn ghost" type="button">插入图片</button>
           <button id="evidenceClearBtn" class="btn ghost danger" type="button">移除图片</button>
         </div>
-        <p id="evidenceHint" class="hint">未插入图片，违约邮件只发送文字。</p>
+        <p id="evidenceHint" class="hint">未插入图片，违约邮件只发送文字（最多支持5张）。</p>
         <div id="evidencePreview" class="evidence-preview hidden" aria-live="polite"></div>
 
         <div id="alertBox" class="alert hidden">
