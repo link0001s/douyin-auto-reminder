@@ -267,10 +267,22 @@ h1 {
   margin-bottom: 10px;
 }
 
+.panel-head.inline-head {
+  margin-top: 12px;
+  margin-bottom: 8px;
+}
+
 h2 {
   font-family: "Bebas Neue", sans-serif;
   letter-spacing: 0.06em;
   font-size: 34px;
+}
+
+h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: #c8daf7;
 }
 
 .pill {

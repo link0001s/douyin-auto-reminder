@@ -91,8 +91,16 @@ function setBusy(busy) {
   els.saveBtn.dataset.busy = busy ? "1" : "0";
   els.refreshBtn.dataset.busy = busy ? "1" : "0";
   const state = loadState();
-  els.saveBtn.disabled = busy || isConfigLocked(state);
+  const locked = isConfigLocked(state);
+  els.saveBtn.disabled = busy || locked;
   els.refreshBtn.disabled = busy;
+  if (els.evidencePickBtn) {
+    els.evidencePickBtn.disabled = busy || locked;
+  }
+  if (els.evidenceClearBtn) {
+    const hasImage = Boolean(state?.evidenceImageDataUrl);
+    els.evidenceClearBtn.disabled = busy || locked || !hasImage;
+  }
 }
 
 function estimateDataUrlBytes(dataUrl) {
@@ -187,28 +195,46 @@ function dataUrlToBlob(dataUrl) {
 }
 
 function renderEvidence(state) {
-  if (!els.evidenceHint || !els.evidencePreview || !els.evidencePreviewImg || !els.evidenceClearBtn) return;
+  if (
+    !els.evidenceHint ||
+    !els.evidencePreview ||
+    !els.evidencePreviewImg ||
+    !els.evidenceClearBtn ||
+    !els.evidencePickBtn
+  ) {
+    return;
+  }
 
   const hasImage = Boolean(state?.evidenceImageDataUrl);
+  const locked = isConfigLocked(state);
   if (!hasImage) {
-    els.evidenceHint.textContent = "未插入图片，违约邮件只发送文字。";
+    els.evidenceHint.textContent = locked ? "配置已锁定，违约图片不可更改。" : "未插入图片，违约邮件只发送文字。";
     els.evidencePreview.classList.add("hidden");
     els.evidencePreviewImg.removeAttribute("src");
     els.evidenceClearBtn.disabled = true;
+    els.evidencePickBtn.disabled = locked;
     return;
   }
 
   const imageName = state.evidenceImageName || "evidence-image.webp";
   const size = Number(state.evidenceImageBytes || estimateDataUrlBytes(state.evidenceImageDataUrl));
   const kb = Math.max(1, Math.round(size / 1024));
-  els.evidenceHint.textContent = `已插入图片：${imageName}（${kb}KB）`;
+  els.evidenceHint.textContent = locked
+    ? `已插入图片：${imageName}（${kb}KB，已随保存状态锁定）`
+    : `已插入图片：${imageName}（${kb}KB）`;
   els.evidencePreviewImg.src = state.evidenceImageDataUrl;
   els.evidencePreview.classList.remove("hidden");
-  els.evidenceClearBtn.disabled = false;
+  els.evidencePickBtn.disabled = locked;
+  els.evidenceClearBtn.disabled = locked;
 }
 
 function handlePickEvidenceImage() {
   if (!els.evidenceImageInput) return;
+  const state = loadState();
+  if (isConfigLocked(state)) {
+    addLog("配置已锁定，违约图片不可更改。");
+    return;
+  }
   els.evidenceImageInput.click();
 }
 
@@ -216,6 +242,12 @@ async function handleEvidenceImageChange(event) {
   const target = event?.target;
   const file = target?.files?.[0];
   if (!file) return;
+  const state = loadState();
+  if (isConfigLocked(state)) {
+    addLog("配置已锁定，违约图片不可更改。");
+    target.value = "";
+    return;
+  }
 
   if (!String(file.type || "").startsWith("image/")) {
     addLog("图片插入失败：请选择图片文件");
@@ -247,6 +279,10 @@ async function handleEvidenceImageChange(event) {
 
 function handleEvidenceImageClear() {
   const current = loadState() || {};
+  if (isConfigLocked(current)) {
+    addLog("配置已锁定，违约图片不可更改。");
+    return;
+  }
   if (!current.evidenceImageDataUrl) return;
 
   const next = { ...current };
