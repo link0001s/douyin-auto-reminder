@@ -1,0 +1,54 @@
+name: Send Test Penalty Mail
+
+on:
+  workflow_dispatch:
+    inputs:
+      to_email:
+        description: "收件邮箱"
+        required: true
+        default: "2879154754@qq.com"
+      subject:
+        description: "邮件主题"
+        required: true
+        default: "[惩罚邮件测试] 抖音更新检测台"
+      body:
+        description: "邮件正文"
+        required: true
+        default: "这是一封惩罚邮件测试，用于验证提醒链路是否可达。"
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install resend
+        run: pip install resend
+
+      - name: Send test mail via Resend
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          TO_EMAIL: ${{ github.event.inputs.to_email }}
+          SUBJECT: ${{ github.event.inputs.subject }}
+          BODY: ${{ github.event.inputs.body }}
+        run: |
+          python - <<'PY'
+          import os
+          import resend
+
+          key = os.getenv("RESEND_API_KEY", "").strip()
+          if not key:
+            raise SystemExit("Missing RESEND_API_KEY")
+
+          resend.api_key = key
+          result = resend.Emails.send({
+            "from": "Douyin Monitor <onboarding@resend.dev>",
+            "to": [os.environ["TO_EMAIL"]],
+            "subject": os.environ["SUBJECT"],
+            "text": os.environ["BODY"],
+            "html": f"<div style='font-family:Arial,sans-serif;line-height:1.6'><h2>惩罚邮件测试</h2><p>{os.environ['BODY']}</p><p>时间: GitHub Actions 自动触发</p></div>",
+          })
+          print(result)
+          PY
