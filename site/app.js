@@ -239,10 +239,12 @@ function renderEvidence(state) {
   trigger.addEventListener("click", () => {
     if (imageWrap.classList.contains("hidden")) {
       imageWrap.classList.remove("hidden");
+      imageWrap.classList.remove("compact");
       img.scrollIntoView({ behavior: "smooth", block: "nearest" });
       return;
     }
     imageWrap.classList.add("hidden");
+    imageWrap.classList.remove("compact");
   });
 
   els.evidencePreview.replaceChildren(trigger, imageWrap);

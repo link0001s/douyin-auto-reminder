@@ -550,6 +550,11 @@ select:focus {
   display: none;
 }
 
+/* 兼容旧缓存逻辑：如果被打上 compact，也直接隐藏而不是缩小 */
+.evidence-inline-image.compact {
+  display: none !important;
+}
+
 .evidence-inline-image img {
   display: block;
   width: 100%;
