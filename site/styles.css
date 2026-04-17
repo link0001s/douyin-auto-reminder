@@ -516,19 +516,47 @@ select:focus {
   display: none;
 }
 
-.evidence-preview-link {
+.evidence-preview-trigger {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
   color: #9ed3ff;
-  text-decoration: none;
+  font: inherit;
+  text-align: left;
   display: inline-block;
   border-bottom: 1px dashed rgba(158, 211, 255, 0.55);
   padding-bottom: 2px;
   transition: color 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+  cursor: pointer;
 }
 
-.evidence-preview-link:hover {
+.evidence-preview-trigger:hover {
   color: #d9f0ff;
   border-color: rgba(217, 240, 255, 0.9);
   transform: translateY(-1px);
+}
+
+.evidence-inline-image {
+  margin-top: 10px;
+  border: 1px solid rgba(79, 122, 180, 0.4);
+  border-radius: 10px;
+  padding: 8px;
+  background: #060d1a;
+}
+
+.evidence-inline-image.hidden {
+  display: none;
+}
+
+.evidence-inline-image img {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #020713;
 }
 
 .log {

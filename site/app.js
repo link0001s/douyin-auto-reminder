@@ -222,14 +222,25 @@ function renderEvidence(state) {
   els.evidenceHint.textContent = locked
     ? `已插入图片：${imageName}（已随保存状态锁定）`
     : `已插入图片：${imageName}`;
-  const link = document.createElement("a");
-  link.className = "evidence-preview-link";
-  link.href = state.evidenceImageDataUrl;
-  link.target = "_blank";
-  link.rel = "noopener noreferrer";
-  link.textContent = `文件名：${imageName}（点击查看）`;
-  link.title = "点击查看已上传图片";
-  els.evidencePreview.replaceChildren(link);
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "evidence-preview-trigger";
+  trigger.textContent = `文件名：${imageName}`;
+  trigger.title = "点击显示图片";
+
+  const imageWrap = document.createElement("div");
+  imageWrap.className = "evidence-inline-image hidden";
+  const img = document.createElement("img");
+  img.src = state.evidenceImageDataUrl;
+  img.alt = imageName;
+  imageWrap.appendChild(img);
+
+  trigger.addEventListener("click", () => {
+    imageWrap.classList.toggle("hidden");
+  });
+
+  els.evidencePreview.replaceChildren(trigger, imageWrap);
   els.evidencePreview.classList.remove("hidden");
 }
 
