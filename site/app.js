@@ -146,7 +146,7 @@ function sanitizeEvidenceName(name) {
 function buildEvidenceName(originalName, mime) {
   const base = sanitizeEvidenceName(originalName);
   const low = String(mime || "").toLowerCase();
-  const ext = low.includes("png") ? "png" : low.includes("jpeg") || low.includes("jpg") ? "jpg" : "webp";
+  const ext = low.includes("png") ? "png" : low.includes("jpeg") || low.includes("jpg") ? "jpg" : "jpg";
   return `${base}.${ext}`;
 }
 
@@ -163,13 +163,15 @@ async function optimizeEvidenceImage(file) {
   canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("图片处理失败");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
   ctx.drawImage(img, 0, 0, width, height);
 
   let quality = 0.86;
-  let dataUrl = canvas.toDataURL("image/webp", quality);
+  let dataUrl = canvas.toDataURL("image/jpeg", quality);
   for (let i = 0; i < 5 && estimateDataUrlBytes(dataUrl) > EVIDENCE_MAX_BYTES; i += 1) {
     quality = Math.max(0.45, quality - 0.1);
-    dataUrl = canvas.toDataURL("image/webp", quality);
+    dataUrl = canvas.toDataURL("image/jpeg", quality);
   }
 
   const bytes = estimateDataUrlBytes(dataUrl);
@@ -177,7 +179,7 @@ async function optimizeEvidenceImage(file) {
     throw new Error("图片过大，请换一张更小的图片");
   }
 
-  const mime = (String(dataUrl).match(/^data:([^;]+);/) || [])[1] || "image/webp";
+  const mime = (String(dataUrl).match(/^data:([^;]+);/) || [])[1] || "image/jpeg";
   return {
     dataUrl,
     bytes,
@@ -205,6 +207,58 @@ function dataUrlToBlob(dataUrl) {
   };
 }
 
+function canvasToJpegBlob(canvas, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("图片转码失败"));
+          return;
+        }
+        resolve(blob);
+      },
+      "image/jpeg",
+      quality
+    );
+  });
+}
+
+async function ensureEmailAttachmentFromDataUrl(dataUrl, originalName) {
+  const parsed = dataUrlToBlob(dataUrl);
+  const lowMime = String(parsed.mime || "").toLowerCase();
+  if (!lowMime.includes("webp")) {
+    return {
+      blob: parsed.blob,
+      mime: parsed.mime,
+      fileName: buildEvidenceName(originalName || "evidence-image", parsed.mime),
+    };
+  }
+
+  try {
+    const img = await loadImageFromDataUrl(dataUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width || 1;
+    canvas.height = img.height || 1;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("图片处理失败");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await canvasToJpegBlob(canvas, 0.9);
+    return {
+      blob,
+      mime: "image/jpeg",
+      fileName: buildEvidenceName(originalName || "evidence-image", "image/jpeg"),
+    };
+  } catch {
+    return {
+      blob: parsed.blob,
+      mime: parsed.mime,
+      fileName: buildEvidenceName(originalName || "evidence-image", parsed.mime),
+    };
+  }
+}
+
 function renderEvidence(state) {
   if (
     !els.evidenceHint ||
@@ -224,7 +278,7 @@ function renderEvidence(state) {
     return;
   }
 
-  const imageName = state.evidenceImageName || "evidence-image.webp";
+  const imageName = state.evidenceImageName || "evidence-image.jpg";
   els.evidenceHint.textContent = locked
     ? `已插入图片：${imageName}（已随保存状态锁定）`
     : `已插入图片：${imageName}`;
@@ -931,11 +985,10 @@ async function trySendMail(state, reason) {
   let evidencePack = null;
   if (state.evidenceImageDataUrl) {
     try {
-      const image = dataUrlToBlob(state.evidenceImageDataUrl);
-      evidencePack = {
-        blob: image.blob,
-        fileName: buildEvidenceName(state.evidenceImageName || "evidence-image", image.mime),
-      };
+      evidencePack = await ensureEmailAttachmentFromDataUrl(
+        state.evidenceImageDataUrl,
+        state.evidenceImageName || "evidence-image"
+      );
     } catch {
       addLog("违约图片解析失败，已回退为纯文字邮件。");
     }
