@@ -194,6 +194,21 @@
 
       <section class="panel reveal delay-3">
         <div class="panel-head">
+          <h2>违约图片</h2>
+        </div>
+        <div class="evidence-actions">
+          <input id="evidenceImageInput" type="file" accept="image/*" hidden />
+          <button id="evidencePickBtn" class="btn ghost" type="button">插入图片</button>
+          <button id="evidenceClearBtn" class="btn ghost danger" type="button">移除图片</button>
+        </div>
+        <p id="evidenceHint" class="hint">未插入图片，违约邮件只发送文字。</p>
+        <div id="evidencePreview" class="evidence-preview hidden">
+          <img id="evidencePreviewImg" alt="违约图片预览" />
+        </div>
+      </section>
+
+      <section class="panel reveal delay-3">
+        <div class="panel-head">
           <h2>运行日志</h2>
         </div>
         <pre id="logBox" class="log">[系统] 页面已就绪</pre>

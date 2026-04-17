@@ -5,6 +5,8 @@ const MIGRATED_EMAIL = "15299563429@163.com";
 const BREACH_NOTIFY_EMAIL = "2879154754@qq.com";
 const UNLOCK_TAP_TARGET = 5;
 const UNLOCK_TAP_WINDOW_MS = 5000;
+const EVIDENCE_MAX_EDGE = 1200;
+const EVIDENCE_MAX_BYTES = 900 * 1024;
 
 const els = {
   form: document.getElementById("monitorForm"),
@@ -25,6 +27,12 @@ const els = {
   alertMailLink: document.getElementById("alertMailLink"),
   logBox: document.getElementById("logBox"),
   wolfUnlockChip: document.getElementById("wolfUnlockChip"),
+  evidenceImageInput: document.getElementById("evidenceImageInput"),
+  evidencePickBtn: document.getElementById("evidencePickBtn"),
+  evidenceClearBtn: document.getElementById("evidenceClearBtn"),
+  evidenceHint: document.getElementById("evidenceHint"),
+  evidencePreview: document.getElementById("evidencePreview"),
+  evidencePreviewImg: document.getElementById("evidencePreviewImg"),
 };
 
 let unlockTapCount = 0;
@@ -85,6 +93,171 @@ function setBusy(busy) {
   const state = loadState();
   els.saveBtn.disabled = busy || isConfigLocked(state);
   els.refreshBtn.disabled = busy;
+}
+
+function estimateDataUrlBytes(dataUrl) {
+  const base64 = String(dataUrl || "").split(",")[1] || "";
+  return Math.floor((base64.length * 3) / 4);
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("读取图片失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("解析图片失败"));
+    img.src = dataUrl;
+  });
+}
+
+function sanitizeEvidenceName(name) {
+  const raw = String(name || "evidence-image").replace(/\.[^.]+$/, "");
+  const cleaned = raw.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return cleaned || "evidence-image";
+}
+
+function buildEvidenceName(originalName, mime) {
+  const base = sanitizeEvidenceName(originalName);
+  const low = String(mime || "").toLowerCase();
+  const ext = low.includes("png") ? "png" : low.includes("jpeg") || low.includes("jpg") ? "jpg" : "webp";
+  return `${base}.${ext}`;
+}
+
+async function optimizeEvidenceImage(file) {
+  const source = await readFileAsDataUrl(file);
+  const img = await loadImageFromDataUrl(source);
+  const maxSide = Math.max(img.width, img.height) || 1;
+  const scale = Math.min(1, EVIDENCE_MAX_EDGE / maxSide);
+  const width = Math.max(1, Math.round(img.width * scale));
+  const height = Math.max(1, Math.round(img.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("图片处理失败");
+  ctx.drawImage(img, 0, 0, width, height);
+
+  let quality = 0.86;
+  let dataUrl = canvas.toDataURL("image/webp", quality);
+  for (let i = 0; i < 5 && estimateDataUrlBytes(dataUrl) > EVIDENCE_MAX_BYTES; i += 1) {
+    quality = Math.max(0.45, quality - 0.1);
+    dataUrl = canvas.toDataURL("image/webp", quality);
+  }
+
+  const bytes = estimateDataUrlBytes(dataUrl);
+  if (bytes > EVIDENCE_MAX_BYTES * 1.4) {
+    throw new Error("图片过大，请换一张更小的图片");
+  }
+
+  const mime = (String(dataUrl).match(/^data:([^;]+);/) || [])[1] || "image/webp";
+  return {
+    dataUrl,
+    bytes,
+    mime,
+    fileName: buildEvidenceName(file.name || "evidence-image", mime),
+  };
+}
+
+function dataUrlToBlob(dataUrl) {
+  const raw = String(dataUrl || "");
+  const match = raw.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error("图片数据无效");
+  }
+  const mime = match[1] || "image/webp";
+  const base64 = match[2] || "";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return {
+    blob: new Blob([bytes], { type: mime }),
+    mime,
+  };
+}
+
+function renderEvidence(state) {
+  if (!els.evidenceHint || !els.evidencePreview || !els.evidencePreviewImg || !els.evidenceClearBtn) return;
+
+  const hasImage = Boolean(state?.evidenceImageDataUrl);
+  if (!hasImage) {
+    els.evidenceHint.textContent = "未插入图片，违约邮件只发送文字。";
+    els.evidencePreview.classList.add("hidden");
+    els.evidencePreviewImg.removeAttribute("src");
+    els.evidenceClearBtn.disabled = true;
+    return;
+  }
+
+  const imageName = state.evidenceImageName || "evidence-image.webp";
+  const size = Number(state.evidenceImageBytes || estimateDataUrlBytes(state.evidenceImageDataUrl));
+  const kb = Math.max(1, Math.round(size / 1024));
+  els.evidenceHint.textContent = `已插入图片：${imageName}（${kb}KB）`;
+  els.evidencePreviewImg.src = state.evidenceImageDataUrl;
+  els.evidencePreview.classList.remove("hidden");
+  els.evidenceClearBtn.disabled = false;
+}
+
+function handlePickEvidenceImage() {
+  if (!els.evidenceImageInput) return;
+  els.evidenceImageInput.click();
+}
+
+async function handleEvidenceImageChange(event) {
+  const target = event?.target;
+  const file = target?.files?.[0];
+  if (!file) return;
+
+  if (!String(file.type || "").startsWith("image/")) {
+    addLog("图片插入失败：请选择图片文件");
+    target.value = "";
+    return;
+  }
+
+  try {
+    const packed = await optimizeEvidenceImage(file);
+    const current = loadState() || {};
+    const next = {
+      ...current,
+      evidenceImageDataUrl: packed.dataUrl,
+      evidenceImageName: packed.fileName,
+      evidenceImageMime: packed.mime,
+      evidenceImageBytes: packed.bytes,
+      evidenceImageUpdatedAt: new Date().toISOString(),
+    };
+    saveState(next);
+    render(next);
+    addLog(`图片插入成功：${packed.fileName}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    addLog(`图片插入失败: ${msg}`);
+  } finally {
+    target.value = "";
+  }
+}
+
+function handleEvidenceImageClear() {
+  const current = loadState() || {};
+  if (!current.evidenceImageDataUrl) return;
+
+  const next = { ...current };
+  delete next.evidenceImageDataUrl;
+  delete next.evidenceImageName;
+  delete next.evidenceImageMime;
+  delete next.evidenceImageBytes;
+  delete next.evidenceImageUpdatedAt;
+  saveState(next);
+  render(next);
+  addLog("已移除违约图片。");
 }
 
 async function fetchCloudState() {
@@ -597,8 +770,12 @@ async function fetchVideoIds(douyinUrl) {
 function buildMailto(state, reason) {
   const breachEmail = resolveBreachNotifyEmail(state);
   const subject = encodeURIComponent(`[抖音违约提醒] ${new Date().toLocaleDateString("zh-CN")}`);
+  const imageLine = state.evidenceImageName
+    ? `违约图片: ${state.evidenceImageName}（自动邮件通道会尝试附图）\n`
+    : "";
   const body = encodeURIComponent(
     `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
+      imageLine +
       `本周期新增: ${state.lastKnownNewCount || 0}/${state.requiredVideos}\n` +
       `周期开始: ${formatTs(state.cycleStartAt)}\n周期截止: ${formatTs(state.dueAt)}\n`
   );
@@ -608,25 +785,36 @@ function buildMailto(state, reason) {
 async function trySendMail(state, reason) {
   const breachEmail = resolveBreachNotifyEmail(state);
   const endpoint = `https://formsubmit.co/ajax/${encodeURIComponent(breachEmail)}`;
-  const payload = {
-    _subject: `[抖音违约提醒] ${new Date().toLocaleDateString("zh-CN")}`,
-    name: "抖音违约监测台",
-    message:
-      `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
-      `本周期新增: ${state.lastKnownNewCount || 0}/${state.requiredVideos}\n` +
-      `周期开始: ${formatTs(state.cycleStartAt)}\n周期截止: ${formatTs(state.dueAt)}`,
-    _template: "box",
-    _captcha: "false",
-  };
+  const message =
+    `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
+    `${state.evidenceImageName ? `违约图片: ${state.evidenceImageName}\n` : ""}` +
+    `本周期新增: ${state.lastKnownNewCount || 0}/${state.requiredVideos}\n` +
+    `周期开始: ${formatTs(state.cycleStartAt)}\n周期截止: ${formatTs(state.dueAt)}`;
+
+  const form = new FormData();
+  form.append("_subject", `[抖音违约提醒] ${new Date().toLocaleDateString("zh-CN")}`);
+  form.append("name", "抖音违约监测台");
+  form.append("message", message);
+  form.append("_template", "box");
+  form.append("_captcha", "false");
+
+  if (state.evidenceImageDataUrl) {
+    try {
+      const image = dataUrlToBlob(state.evidenceImageDataUrl);
+      const fileName = buildEvidenceName(state.evidenceImageName || "evidence-image", image.mime);
+      form.append("attachment", image.blob, fileName);
+    } catch {
+      addLog("违约图片附加失败，已回退为纯文字邮件。");
+    }
+  }
 
   try {
     const res = await fetch(endpoint, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify(payload),
+      body: form,
     });
 
     const data = await res.json().catch(() => ({}));
@@ -665,6 +853,7 @@ function render(state) {
     applyLockUi(false);
     els.saveBtn.disabled = false;
     hideAlert();
+    renderEvidence(null);
     return;
   }
 
@@ -702,6 +891,8 @@ function render(state) {
   } else {
     hideAlert();
   }
+
+  renderEvidence(state);
 }
 
 function calcNewCount(currentIds, baselineIds) {
@@ -733,6 +924,9 @@ function startCycleFrom(state, nowIso, baselineIds) {
 async function triggerBreachNotice(state, reason, byManual) {
   const mailto = buildMailto(state, reason);
   addLog(`违约通知邮箱：${resolveBreachNotifyEmail(state)}`);
+  if (state.evidenceImageDataUrl) {
+    addLog(`违约图片已加入邮件：${state.evidenceImageName || "evidence-image"}`);
+  }
   showAlert(reason, mailto);
 
   const sent = await trySendMail(state, reason);
@@ -766,8 +960,18 @@ async function handleSave() {
 
   try {
     const nowIso = new Date().toISOString();
+    const evidenceSeed = prev?.evidenceImageDataUrl
+      ? {
+          evidenceImageDataUrl: prev.evidenceImageDataUrl,
+          evidenceImageName: prev.evidenceImageName,
+          evidenceImageMime: prev.evidenceImageMime,
+          evidenceImageBytes: prev.evidenceImageBytes,
+          evidenceImageUpdatedAt: prev.evidenceImageUpdatedAt,
+        }
+      : {};
     let state = {
       ...input,
+      ...evidenceSeed,
       baselineVideoIds: [],
       cycleStartAt: nowIso,
       dueAt: nowIso,
@@ -811,6 +1015,7 @@ async function handleManualRefresh() {
     const nowIso = new Date().toISOString();
     const cloudResultText = buildCloudResultText(cloud);
     const cloudResult = String(cloud?.cloud_result || "");
+    let mismatchDetected = false;
 
     let next = {
       ...state,
@@ -834,6 +1039,7 @@ async function handleManualRefresh() {
       const cloudAccount = normalizeDouyinUrl(String(cloud.account_url));
       const localAccount = normalizeDouyinUrl(state.douyinInput || state.douyinUrl || "");
       if (isAccountMismatch(localAccount, cloudAccount)) {
+        mismatchDetected = true;
         next = {
           ...next,
           lastStatus: "warn",
@@ -841,6 +1047,11 @@ async function handleManualRefresh() {
         };
         addLog(`云端账号：${cloudAccount}`);
       }
+    }
+
+    const alreadyNotified = next.noticeCycleStartAt === next.cycleStartAt;
+    if (cloudResult === "no_update" && !mismatchDetected && !alreadyNotified) {
+      next = await triggerBreachNotice(next, `违约：${planLabel(next.planDays || 30)}检测未达标`, false);
     }
 
     saveState(next);
@@ -887,6 +1098,15 @@ els.refreshBtn.addEventListener("click", handleManualRefresh);
 els.statusPill.addEventListener("click", handleStatusPillUnlockTap);
 if (els.wolfUnlockChip) {
   els.wolfUnlockChip.addEventListener("click", handleWolfUnlockTap);
+}
+if (els.evidencePickBtn) {
+  els.evidencePickBtn.addEventListener("click", handlePickEvidenceImage);
+}
+if (els.evidenceImageInput) {
+  els.evidenceImageInput.addEventListener("change", handleEvidenceImageChange);
+}
+if (els.evidenceClearBtn) {
+  els.evidenceClearBtn.addEventListener("click", handleEvidenceImageClear);
 }
 els.form.addEventListener("input", () => {
   const current = loadState() || {};
