@@ -963,7 +963,9 @@ function buildMailto(state, reason) {
 
 async function trySendMail(state, reason) {
   const breachEmail = resolveBreachNotifyEmail(state);
-  const directEndpoint = `https://formsubmit.co/${encodeURIComponent(FORMSUBMIT_ACTIVATED_INBOX)}`;
+  // 【关键修改1】必须使用 /ajax/ 路径
+  const directEndpoint = `https://formsubmit.co/ajax/${encodeURIComponent(FORMSUBMIT_ACTIVATED_INBOX)}`;
+
   const message =
     `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
     `${state.evidenceImageName ? `违约图片: ${state.evidenceImageName}\n` : ""}` +
@@ -978,7 +980,6 @@ async function trySendMail(state, reason) {
     form.append("_template", "box");
     form.append("_captcha", "false");
     if (breachEmail && breachEmail !== FORMSUBMIT_ACTIVATED_INBOX) {
-      // 通过已激活邮箱作为发送通道，把用户输入邮箱放到 CC，避免目标邮箱单独激活。
       form.append("_cc", breachEmail);
     }
     return form;
@@ -993,9 +994,6 @@ async function trySendMail(state, reason) {
       );
     } catch {
       addLog("违约图片解析失败，已回退为纯文字邮件。");
-      console.error("[trySendMail] evidence parse failed", {
-        evidenceImageName: state.evidenceImageName || "",
-      });
     }
   }
 
@@ -1003,74 +1001,41 @@ async function trySendMail(state, reason) {
     const form = buildBaseForm();
     if (evidencePack) {
       const directFile = toFileLike(evidencePack.blob, evidencePack.fileName, evidencePack.mime);
-      // 仅保留标准 attachment 字段，避免多字段导致通道 500。
-      console.log("[trySendMail] attachment before append", {
-        name: evidencePack.fileName,
-        size: Number(evidencePack.blob?.size || 0),
-        mime: evidencePack.mime,
-      });
-      if (!directFile || Number(evidencePack.blob?.size || 0) <= 0) {
-        throw new Error("附件文件为空，取消发送");
-      }
       form.append("attachment", directFile, evidencePack.fileName);
     }
 
     const res = await fetch(directEndpoint, {
       method: "POST",
-      mode: "cors",
+      // 【关键修改2】加上 Accept 头，明确告诉后端我们要 JSON 回执，不要跳转
+      headers: {
+        Accept: "application/json",
+      },
       body: form,
     });
 
-    const text = String(await res.text().catch(() => ""));
-    const lower = text.toLowerCase();
-    const responseSnippet = text.slice(0, 300);
+    const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      addLog(`自动邮件通道返回异常状态：${res.status}`);
-      console.error("[trySendMail] non-2xx response", {
-        endpoint: directEndpoint,
-        status: res.status,
-        statusText: res.statusText,
-        responseSnippet,
-      });
+      addLog(`自动邮件通道返回异常：${res.status} ${data.message || ""}`);
       return false;
     }
 
-    if (lower.includes("needs activation") || lower.includes("activate form")) {
+    if (data.message && (data.message.toLowerCase().includes("needs activation") || data.message.toLowerCase().includes("activate"))) {
       addLog("邮箱未激活：请到该邮箱收件箱/垃圾箱，点击 FormSubmit 的“Activate Form”链接后再发。");
-      console.error("[trySendMail] activation required", {
-        endpoint: directEndpoint,
-        responseSnippet,
-      });
       return false;
     }
 
-    if (lower.includes("server error") || lower.includes("error")) {
-      addLog("自动邮件通道返回错误页面，请稍后重试。");
-      console.error("[trySendMail] error page returned", {
-        endpoint: directEndpoint,
-        responseSnippet,
-      });
-      return false;
-    }
-
-    // FormSubmit 成功页通常包含 Thanks；若未命中但 HTTP 200，也按成功处理。
-    if (lower.includes("thanks") || res.ok) {
-      const ccTip =
-        breachEmail && breachEmail !== FORMSUBMIT_ACTIVATED_INBOX ? `（已抄送到 ${breachEmail}）` : "";
+    if (data.success === "true") {
+      const ccTip = breachEmail && breachEmail !== FORMSUBMIT_ACTIVATED_INBOX ? `（已抄送到 ${breachEmail}）` : "";
       addLog(evidencePack ? `违约邮件已发送（真实图片附件）${ccTip}。` : `违约邮件已发送${ccTip}。`);
       return true;
     }
 
     addLog("邮件通道已提交，但未拿到明确成功回执。");
-    console.error("[trySendMail] unknown response", {
-      endpoint: directEndpoint,
-      responseSnippet,
-    });
     return false;
   } catch (err) {
-    addLog(`自动邮件通道异常: ${String(err)}`);
-    console.error("[trySendMail] fetch exception", err);
+    // 【关键修改3】直接抛出真实错误，不再用 no-cors 掩耳盗铃
+    addLog(`自动邮件通道发送失败（可能是网络拦截或图片过大）: ${String(err)}`);
     return false;
   }
 }
