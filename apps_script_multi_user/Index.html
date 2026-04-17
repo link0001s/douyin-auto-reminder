@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Link's Update Monitor</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #050913;
+        --panel: #0b1324;
+        --line: #234072;
+        --text: #e8f2ff;
+        --sub: #92abd2;
+        --ok: #7af0ad;
+        --warn: #ff8f8f;
+        --btn: #69d6ff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+        background:
+          radial-gradient(1100px 500px at 80% -10%, rgba(49, 90, 192, 0.2), transparent 65%),
+          radial-gradient(900px 420px at -10% 80%, rgba(50, 176, 151, 0.18), transparent 60%),
+          var(--bg);
+        color: var(--text);
+      }
+
+      .wrap {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 26px 16px 36px;
+      }
+
+      .hero {
+        margin-bottom: 16px;
+      }
+
+      .hero h1 {
+        margin: 0;
+        font-size: clamp(32px, 4.6vw, 54px);
+        line-height: 1.05;
+      }
+
+      .hero p {
+        margin: 8px 0 0;
+        color: var(--sub);
+      }
+
+      .panel {
+        background: linear-gradient(120deg, rgba(13, 23, 44, 0.95), rgba(6, 14, 30, 0.94));
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 16px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .full {
+        grid-column: 1 / -1;
+      }
+
+      label {
+        display: block;
+      }
+
+      label span {
+        display: block;
+        margin: 0 0 6px;
+        color: var(--sub);
+        font-size: 13px;
+      }
+
+      input,
+      select {
+        width: 100%;
+        border: 1px solid #2a4779;
+        border-radius: 12px;
+        background: #071124;
+        color: var(--text);
+        padding: 12px 14px;
+        font-size: 16px;
+      }
+
+      .actions {
+        margin-top: 12px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      button {
+        border: 1px solid #36639f;
+        background: #081937;
+        color: var(--text);
+        border-radius: 12px;
+        min-height: 48px;
+        padding: 0 12px;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button.primary {
+        background: linear-gradient(90deg, #3c96ff, #54d0c5);
+        border-color: transparent;
+        color: #031226;
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .stats {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .card {
+        border: 1px solid #2b476f;
+        border-radius: 14px;
+        padding: 12px;
+        background: #071022;
+      }
+
+      .card .k {
+        color: var(--sub);
+        font-size: 12px;
+      }
+
+      .card .v {
+        margin-top: 6px;
+        font-size: 26px;
+        font-weight: 900;
+        line-height: 1.1;
+        word-break: break-word;
+      }
+
+      .card .m {
+        margin-top: 8px;
+        color: #9eb5d5;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .log {
+        margin-top: 12px;
+        border: 1px dashed #335079;
+        border-radius: 14px;
+        min-height: 160px;
+        max-height: 300px;
+        overflow: auto;
+        background: #040b19;
+        padding: 12px;
+        white-space: pre-wrap;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 13px;
+        color: #cde0ff;
+      }
+
+      .ok {
+        color: var(--ok);
+      }
+
+      .warn {
+        color: var(--warn);
+      }
+
+      @media (max-width: 860px) {
+        .grid,
+        .actions,
+        .stats {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="hero">
+        <h1>Link's Update Monitor</h1>
+        <p>多用户并发版：每个用户独立配置与邮箱，互不覆盖，电脑关机也能自动跑。</p>
+      </section>
+
+      <section class="panel">
+        <div class="grid">
+          <label class="full">
+            <span>监控编号（首次保存会自动生成）</span>
+            <input id="monitorId" placeholder="例如 MON-AB12CD34EF56" />
+          </label>
+
+          <label class="full">
+            <span>抖音号 / 抖音主页链接</span>
+            <input id="douyinInput" placeholder="例如 https://www.douyin.com/user/..." />
+          </label>
+
+          <label>
+            <span>违约通知邮箱</span>
+            <input id="noticeEmail" type="email" placeholder="you@example.com" />
+          </label>
+
+          <label>
+            <span>规则周期</span>
+            <select id="planDays">
+              <option value="7">7天7条</option>
+              <option value="15">15天15条</option>
+              <option value="30" selected>30天30条</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="saveBtn" class="primary">保存状态</button>
+          <button id="checkBtn">点检测 / 刷新状态</button>
+          <button id="loadBtn">加载状态</button>
+        </div>
+
+        <div class="stats">
+          <article class="card">
+            <p class="k">当前周期</p>
+            <p id="cycleText" class="v">30天30条</p>
+            <p id="dueText" class="m">到期时间：-</p>
+          </article>
+          <article class="card">
+            <p class="k">视频更新状态</p>
+            <p id="progressText" class="v">未检测</p>
+            <p id="checkTimeText" class="m">最近检测：-</p>
+          </article>
+          <article class="card">
+            <p class="k">通知邮箱</p>
+            <p id="emailText" class="v">-</p>
+            <p id="statusText" class="m">状态：待初始化</p>
+          </article>
+        </div>
+
+        <pre id="logBox" class="log">[系统] 页面已就绪</pre>
+      </section>
+    </main>
+
+    <script>
+      const STORAGE_KEY = "link_multi_monitor_id_v1";
+      const els = {
+        monitorId: document.getElementById("monitorId"),
+        douyinInput: document.getElementById("douyinInput"),
+        noticeEmail: document.getElementById("noticeEmail"),
+        planDays: document.getElementById("planDays"),
+        saveBtn: document.getElementById("saveBtn"),
+        checkBtn: document.getElementById("checkBtn"),
+        loadBtn: document.getElementById("loadBtn"),
+        cycleText: document.getElementById("cycleText"),
+        dueText: document.getElementById("dueText"),
+        progressText: document.getElementById("progressText"),
+        checkTimeText: document.getElementById("checkTimeText"),
+        emailText: document.getElementById("emailText"),
+        statusText: document.getElementById("statusText"),
+        logBox: document.getElementById("logBox"),
+      };
+
+      function ts() {
+        return new Date().toLocaleString("zh-CN", { hour12: false });
+      }
+
+      function log(text, cls) {
+        const line = `[${ts()}] ${text}`;
+        if (!cls) {
+          els.logBox.textContent += `\n${line}`;
+        } else {
+          const safe = text
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;");
+          els.logBox.innerHTML += `\n<span class="${cls}">[${ts()}] ${safe}</span>`;
+        }
+        els.logBox.scrollTop = els.logBox.scrollHeight;
+      }
+
+      function fmt(iso) {
+        if (!iso) return "-";
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return String(iso);
+        return d.toLocaleString("zh-CN", { hour12: false });
+      }
+
+      function planLabel(days) {
+        const d = Number(days || 30);
+        return `${d}天${d}条`;
+      }
+
+      function setBusy(busy) {
+        els.saveBtn.disabled = busy;
+        els.checkBtn.disabled = busy;
+        els.loadBtn.disabled = busy;
+      }
+
+      function callServer(name, ...args) {
+        return new Promise((resolve, reject) => {
+          google.script.run
+            .withSuccessHandler((res) => resolve(res))
+            .withFailureHandler((err) => {
+              const msg = err && err.message ? err.message : String(err || "未知错误");
+              reject(new Error(msg));
+            })
+            [name](...args);
+        });
+      }
+
+      function renderState(state) {
+        if (!state) return;
+        els.monitorId.value = state.monitorId || "";
+        els.douyinInput.value = state.douyinInput || "";
+        els.noticeEmail.value = state.noticeEmail || "";
+        els.planDays.value = String(state.planDays || 30);
+        els.cycleText.textContent = planLabel(state.planDays || 30);
+        els.dueText.textContent = `到期时间：${fmt(state.dueAt)}`;
+        els.progressText.textContent = `${Number(state.lastKnownNewCount || 0)} / ${Number(
+          state.requiredVideos || state.planDays || 30
+        )}`;
+        els.checkTimeText.textContent = `最近检测：${fmt(state.lastManualCheckAt || state.lastAutoCheckAt)}`;
+        els.emailText.textContent = state.noticeEmail || "-";
+        els.statusText.textContent = `状态：${state.latestResultText || "待初始化"}`;
+
+        if (state.monitorId) {
+          localStorage.setItem(STORAGE_KEY, state.monitorId);
+        }
+      }
+
+      async function onSave() {
+        setBusy(true);
+        try {
+          const payload = {
+            monitorId: (els.monitorId.value || "").trim(),
+            douyinInput: (els.douyinInput.value || "").trim(),
+            noticeEmail: (els.noticeEmail.value || "").trim(),
+            planDays: Number(els.planDays.value || 30),
+          };
+          const state = await callServer("apiSaveMonitor", payload);
+          renderState(state);
+          log(`保存成功，监控编号：${state.monitorId}`, "ok");
+        } catch (err) {
+          log(`保存失败：${err.message}`, "warn");
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      async function onCheck() {
+        const id = (els.monitorId.value || "").trim();
+        if (!id) {
+          log("请先保存状态，生成监控编号。", "warn");
+          return;
+        }
+
+        setBusy(true);
+        try {
+          const state = await callServer("apiCheckMonitor", id);
+          renderState(state);
+          log(`检测完成：${state.latestResultText}`, state.lastStatus === "warn" ? "warn" : "ok");
+        } catch (err) {
+          log(`检测失败：${err.message}`, "warn");
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      async function onLoad() {
+        const id = (els.monitorId.value || "").trim();
+        if (!id) {
+          log("请先输入监控编号。", "warn");
+          return;
+        }
+
+        setBusy(true);
+        try {
+          const state = await callServer("apiGetMonitor", id);
+          renderState(state);
+          log("已刷新云端状态。", "ok");
+        } catch (err) {
+          log(`加载失败：${err.message}`, "warn");
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      els.saveBtn.addEventListener("click", onSave);
+      els.checkBtn.addEventListener("click", onCheck);
+      els.loadBtn.addEventListener("click", onLoad);
+
+      window.addEventListener("load", () => {
+        const cachedId = localStorage.getItem(STORAGE_KEY) || "";
+        if (cachedId) {
+          els.monitorId.value = cachedId;
+          onLoad();
+        }
+      });
+    </script>
+  </body>
+</html>
