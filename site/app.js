@@ -1207,17 +1207,19 @@ async function trySendMail(state, reason) {
   const evidenceImages = getEvidenceImages(state);
   const evidenceNames = evidenceImages.map((item) => item.fileName);
 
-  const message =
-    `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
-    `${evidenceNames.length ? `违约图片: ${evidenceNames.join("、")}\n` : ""}` +
-    `本周期新增: ${state.lastKnownNewCount || 0}/${state.requiredVideos}\n` +
-    `周期开始: ${formatTs(state.cycleStartAt)}\n周期截止: ${formatTs(state.dueAt)}`;
-
   const buildBaseForm = () => {
     const form = new FormData();
     form.append("_subject", `[抖音违约提醒] ${new Date().toLocaleDateString("zh-CN")}`);
     form.append("name", "抖音违约监测台");
-    form.append("message", message);
+    form.append("触发原因", reason);
+    form.append("规则", planLabel(state.planDays));
+    form.append("抖音号", String(state.douyinInput || ""));
+    form.append("本周期新增", `${state.lastKnownNewCount || 0}/${state.requiredVideos || state.planDays || 30}`);
+    form.append("周期开始", formatTs(state.cycleStartAt));
+    form.append("周期截止", formatTs(state.dueAt));
+    if (evidenceNames.length) {
+      form.append("违约图片", evidenceNames.join("、"));
+    }
     form.append("_template", "box");
     form.append("_captcha", "false");
     if (breachEmail && breachEmail !== FORMSUBMIT_ACTIVATED_INBOX) {
