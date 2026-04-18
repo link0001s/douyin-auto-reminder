@@ -431,7 +431,7 @@ select:focus {
   border-radius: 14px;
   padding: 10px;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   align-items: center;
 }
@@ -444,15 +444,6 @@ select:focus {
   margin: 0;
   color: #ffc6c6;
   font-size: 13px;
-}
-
-.alert a {
-  color: #ffffff;
-  text-decoration: none;
-  border: 1px solid rgba(255, 255, 255, 0.36);
-  border-radius: 999px;
-  padding: 5px 10px;
-  font-size: 12px;
 }
 
 .hint {

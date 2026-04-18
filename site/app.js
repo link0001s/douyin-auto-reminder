@@ -26,7 +26,6 @@ const els = {
   latestResult: document.getElementById("latestResult"),
   alertBox: document.getElementById("alertBox"),
   alertText: document.getElementById("alertText"),
-  alertMailLink: document.getElementById("alertMailLink"),
   logBox: document.getElementById("logBox"),
   dragonBreachChip: document.getElementById("dragonBreachChip"),
   wolfUnlockChip: document.getElementById("wolfUnlockChip"),
@@ -1197,22 +1196,6 @@ async function fetchVideoIds(douyinUrl) {
   throw new Error("未抓到视频 ID。请粘贴账号主页链接（/user/...）或直接粘贴 sec_uid（MS4w...）重试");
 }
 
-function buildMailto(state, reason) {
-  const breachEmail = resolveBreachNotifyEmail(state);
-  const subject = encodeURIComponent(`[抖音违约提醒] ${new Date().toLocaleDateString("zh-CN")}`);
-  const evidenceNames = getEvidenceImages(state).map((item) => item.fileName);
-  const imageLine = evidenceNames.length
-    ? `违约图片: ${evidenceNames.join("、")}（自动邮件通道会尝试附图）\n`
-    : "";
-  const body = encodeURIComponent(
-    `触发原因: ${reason}\n规则: ${planLabel(state.planDays)}\n抖音: ${state.douyinInput}\n` +
-      imageLine +
-      `本周期新增: ${state.lastKnownNewCount || 0}/${state.requiredVideos}\n` +
-      `周期开始: ${formatTs(state.cycleStartAt)}\n周期截止: ${formatTs(state.dueAt)}\n`
-  );
-  return `mailto:${breachEmail}?subject=${subject}&body=${body}`;
-}
-
 async function trySendMail(state, reason) {
   const breachEmail = resolveBreachNotifyEmail(state);
   const directEndpoint = `https://formsubmit.co/${encodeURIComponent(FORMSUBMIT_ACTIVATED_INBOX)}`;
@@ -1297,9 +1280,8 @@ async function trySendMail(state, reason) {
   }
 }
 
-function showAlert(text, mailto) {
+function showAlert(text) {
   els.alertText.textContent = normalizeRunLogText(text);
-  els.alertMailLink.href = mailto;
   els.alertBox.classList.remove("hidden");
 }
 
@@ -1357,7 +1339,7 @@ function render(state) {
 
   if (state.lastStatus === "warn" && state.noticeEmail) {
     const reason = state.latestResultText || "违约提醒";
-    showAlert(reason, buildMailto(state, reason));
+    showAlert(reason);
   } else {
     hideAlert();
   }
@@ -1392,17 +1374,16 @@ function startCycleFrom(state, nowIso, baselineIds) {
 }
 
 async function triggerBreachNotice(state, reason, byManual) {
-  const mailto = buildMailto(state, reason);
   addLog(`违约通知邮箱：${resolveBreachNotifyEmail(state)}`);
   const evidenceNames = getEvidenceImages(state).map((item) => item.fileName);
   if (evidenceNames.length) {
     addLog(`违约图片已加入邮件：${evidenceNames.join("、")}`);
   }
-  showAlert(reason, mailto);
+  showAlert(reason);
 
   const sent = await trySendMail(state, reason);
   if (!sent && byManual) {
-    addLog("自动邮件失败，请查看控制台报错后重试；或点击页面中的邮件按钮手动发送。\n");
+    addLog("自动邮件失败，请查看控制台报错后重试。\n");
   }
 
   return {
