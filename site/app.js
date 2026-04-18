@@ -439,6 +439,17 @@ function applyEvidenceImages(state, images) {
   return next;
 }
 
+function ensureEvidenceArrayShape(state) {
+  const next = { ...(state || {}) };
+  const normalized = getEvidenceImages(next);
+  if (normalized.length) {
+    next.evidenceImages = normalized.slice(0, EVIDENCE_MAX_COUNT);
+  } else {
+    delete next.evidenceImages;
+  }
+  return next;
+}
+
 function renderEvidence(state) {
   if (
     !els.evidenceHint ||
@@ -875,7 +886,8 @@ function applyLockUi(locked) {
 
 function saveState(state) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const next = ensureEvidenceArrayShape(state);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     return true;
   } catch (err) {
     console.error("[saveState] localStorage 写入失败：", err);
@@ -1241,9 +1253,9 @@ async function trySendMail(state, reason) {
   try {
     const form = buildBaseForm();
     if (evidencePacks.length) {
-      evidencePacks.forEach((pack) => {
+      evidencePacks.slice(0, EVIDENCE_MAX_COUNT).forEach((pack, index) => {
         const directFile = toFileLike(pack.blob, pack.fileName, pack.mime);
-        form.append("attachment", directFile, pack.fileName);
+        form.append(`attachment${index + 1}`, directFile, pack.fileName);
       });
     }
 
