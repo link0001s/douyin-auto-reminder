@@ -14,7 +14,8 @@ const els = {
   form: document.getElementById("monitorForm"),
   douyinInput: document.getElementById("douyinInput"),
   noticeEmail: document.getElementById("noticeEmail"),
-  rulePlan: document.getElementById("rulePlan"),
+  ruleDays: document.getElementById("ruleDays"),
+  ruleVideos: document.getElementById("ruleVideos"),
   saveBtn: document.getElementById("saveBtn"),
   refreshBtn: document.getElementById("refreshBtn"),
   statusPill: document.getElementById("statusPill"),
@@ -825,8 +826,8 @@ function formatTs(iso) {
   return new Date(iso).toLocaleString("zh-CN", { hour12: false });
 }
 
-function planLabel(days) {
-  return `${days}天${days}条`;
+function planLabel(days, videos) {
+  return `${days}天${videos}条`;
 }
 
 function resolveBreachNotifyEmail(state) {
@@ -880,7 +881,8 @@ function activateDeerHardLock(source) {
 function applyLockUi(locked) {
   els.douyinInput.disabled = locked;
   els.noticeEmail.disabled = locked;
-  els.rulePlan.disabled = locked;
+  els.ruleDays.disabled = locked;
+  els.ruleVideos.disabled = locked;
 }
 
 function saveState(state) {
@@ -984,7 +986,10 @@ function loadState() {
 function readForm() {
   const douyinInput = (els.douyinInput.value || "").trim();
   const noticeEmail = (els.noticeEmail.value || "").trim();
-  const planDays = Number(els.rulePlan.value || 30);
+  const planDays = Math.max(1, Math.min(365, Number(els.ruleDays.value) || 1));
+  const requiredVideos = Math.max(1, Math.min(75, Number(els.ruleVideos.value) || 1));
+  els.ruleDays.value = String(planDays);
+  els.ruleVideos.value = String(requiredVideos);
 
   if (!douyinInput) {
     throw new Error("请先输入抖音号或主页链接");
@@ -992,16 +997,13 @@ function readForm() {
   if (!noticeEmail) {
     throw new Error("请先输入通知邮箱");
   }
-  if (![7, 15, 30].includes(planDays)) {
-    throw new Error("规则周期只支持 7 / 15 / 30");
-  }
 
   return {
     douyinInput,
     douyinUrl: normalizeDouyinUrl(douyinInput),
     noticeEmail,
     planDays,
-    requiredVideos: planDays,
+    requiredVideos,
   };
 }
 
@@ -1212,7 +1214,7 @@ async function trySendMail(state, reason) {
 
     // 2. 独立追加的排版正文
     form.append("📢 广播", "各位好，我是某人的无情监督机器人。");
-    form.append("💥 违约事实", `某人曾信誓旦旦地承诺，要在 ${state.planDays}天 内在抖音更新 ${state.planDays}条 视频。但很遗憾，截止到今天，TA违约了！本周期只水了 ${state.lastKnownNewCount || 0} 条视频。`);
+    form.append("💥 违约事实", `某人曾信誓旦旦地承诺，要在 ${state.planDays}天 内在抖音更新 ${state.requiredVideos || state.planDays}条 视频。但很遗憾，截止到今天，TA违约了！本周期只水了 ${state.lastKnownNewCount || 0} 条视频。`);
     form.append("🤡 社死宣告", "作为一个没有毅力、画大饼的鸽子精，根据TA自己设定的规则现在将附件中的图片发送给你。请各位保存这张照片，并在下次见到他/她时，用这张照片狠狠地嘲笑TA！");
     form.append("👇 高能预警", "说好的惩罚丑照已经在【邮件附件】里了！如果没看到图，可能是你的邮箱把它折叠或拦截了，记得点开附件查收！");
     form.append("🤖 系统", "—— 绝不姑息的抖音违约监测台 自动发送");
@@ -1300,6 +1302,8 @@ function render(state) {
     els.emailView.textContent = "-";
     els.latestResult.textContent = "状态：待初始化";
     applyLockUi(false);
+    els.ruleDays.value = "30";
+    els.ruleVideos.value = "30";
     els.saveBtn.disabled = false;
     syncEvidenceButtonsWithSaveState();
     syncDeerGuardUi(null);
@@ -1309,22 +1313,25 @@ function render(state) {
   }
 
   const locked = isConfigLocked(state);
+  const safeDays = Math.max(1, Math.min(365, Number(state.planDays) || 30));
+  const safeVideos = Math.max(1, Math.min(75, Number(state.requiredVideos) || safeDays));
 
   els.douyinInput.value = state.douyinInput || "";
   els.noticeEmail.value = state.noticeEmail || "";
-  els.rulePlan.value = String(state.planDays || 30);
+  els.ruleDays.value = String(safeDays);
+  els.ruleVideos.value = String(safeVideos);
   applyLockUi(locked);
   els.saveBtn.disabled = locked || els.saveBtn.dataset.busy === "1";
   els.refreshBtn.disabled = els.refreshBtn.dataset.busy === "1";
   syncEvidenceButtonsWithSaveState();
   syncDeerGuardUi(state);
 
-  els.cycleView.textContent = planLabel(state.planDays || 30);
+  els.cycleView.textContent = planLabel(safeDays, safeVideos);
   els.dueTime.textContent = `到期时间：${formatTs(state.dueAt)}`;
   if (state.cloudOnly) {
     els.progressCount.textContent = state.lastKnownNewCount ? "已更新" : "未更新";
   } else {
-    els.progressCount.textContent = `${state.lastKnownNewCount || 0} / ${state.requiredVideos || state.planDays || 30}`;
+    els.progressCount.textContent = `${state.lastKnownNewCount || 0} / ${safeVideos}`;
   }
   els.latestTime.textContent = `最近检测：${formatTs(state.lastManualCheckAt || state.lastAutoCheckAt)}`;
   els.emailView.textContent = state.noticeEmail || "-";
@@ -1369,7 +1376,7 @@ function startCycleFrom(state, nowIso, baselineIds) {
     lastManualCheckAt: null,
     noticeCycleStartAt: null,
     configLocked: true,
-    latestResultText: `已保存新周期：${planLabel(state.planDays)}`,
+    latestResultText: `已保存新周期：${planLabel(state.planDays, state.requiredVideos || state.planDays)}`,
     lastStatus: "ok",
   };
 }
@@ -1411,7 +1418,7 @@ async function handleSave() {
   const input = readForm();
   setBusy(true);
   setPill("load", "保存中");
-  addLog(`初始化周期：${planLabel(input.planDays)}（云端版）`);
+  addLog(`初始化周期：${planLabel(input.planDays, input.requiredVideos)}（云端版）`);
   addLog(`识别到检测链接：${input.douyinUrl}`);
 
   try {
@@ -1502,7 +1509,11 @@ async function handleManualRefresh() {
 
     const alreadyNotified = next.noticeCycleStartAt === next.cycleStartAt;
     if (cloudResult === "no_update" && !mismatchDetected && !alreadyNotified) {
-      next = await triggerBreachNotice(next, `违约：${planLabel(next.planDays || 30)}检测未达标`, false);
+      next = await triggerBreachNotice(
+        next,
+        `违约：${planLabel(next.planDays || 30, next.requiredVideos || next.planDays || 30)}检测未达标`,
+        false
+      );
     }
 
     saveState(next);
@@ -1661,8 +1672,12 @@ els.form.addEventListener("input", () => {
   }
   current.douyinInput = (els.douyinInput.value || "").trim();
   current.noticeEmail = (els.noticeEmail.value || "").trim();
-  current.planDays = Number(els.rulePlan.value || 30);
-  current.requiredVideos = current.planDays;
+  let safeDays = Math.max(1, Math.min(365, Number(els.ruleDays.value) || 1));
+  let safeVideos = Math.max(1, Math.min(75, Number(els.ruleVideos.value) || 1));
+  els.ruleDays.value = safeDays;
+  els.ruleVideos.value = safeVideos;
+  current.planDays = safeDays;
+  current.requiredVideos = safeVideos;
   saveState(current);
   render(current);
 });

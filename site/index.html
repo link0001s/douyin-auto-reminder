@@ -157,12 +157,13 @@
           </label>
 
           <label class="field">
-            <span>规则周期</span>
-            <select id="rulePlan">
-              <option value="7">7天7条</option>
-              <option value="15">15天15条</option>
-              <option value="30" selected>30天30条</option>
-            </select>
+            <span>规则周期天数</span>
+            <input id="ruleDays" type="number" min="1" max="365" placeholder="周期(最多365天)" value="30" required />
+          </label>
+
+          <label class="field">
+            <span>规则视频条数</span>
+            <input id="ruleVideos" type="number" min="1" max="75" placeholder="条数(最多75条)" value="30" required />
           </label>
         </form>
 
