@@ -1204,14 +1204,18 @@ async function trySendMail(state, reason) {
 
   const buildBaseForm = () => {
     const form = new FormData();
-    form.append("_subject", "[🧎‍♂️ 对不起我又鸽了！一份来自抖音断更选手的惩罚兑现]");
-    form.append("name", "抖音违约监测台");
-    form.append("触发原因", reason);
-    form.append("规则", planLabel(state.planDays));
-    form.append("抖音号", String(state.douyinInput || ""));
-    form.append("本周期新增", `${state.lastKnownNewCount || 0}/${state.requiredVideos || state.planDays || 30}`);
-    form.append("周期开始", formatTs(state.cycleStartAt));
-    form.append("周期截止", formatTs(state.dueAt));
+    form.append("_subject", "【公开处刑】你的一位朋友的自媒体账号又断更了，请尽情嘲笑他！");
+    form.append("📢 广播", "各位好，我是 xxx 的无情监督机器人。");
+    form.append(
+      "💥 违约事实",
+      `某人曾信誓旦旦地承诺，要在 ${state.planDays}天 内在抖音更新 ${state.planDays}条 视频。但很遗憾，截止到今天，TA违约了！本周期只水了 ${state.lastKnownNewCount || 0} 条视频。`
+    );
+    form.append(
+      "🤡 社死宣告",
+      "作为一个没有毅力、画大饼的鸽子精，根据TA自己设定的规则现在将附件中的图片发送给你。请各位保存这张照片，并在下次见到他/她时，用这张照片狠狠地嘲笑TA！"
+    );
+    form.append("🤖 系统", "—— 绝不姑息的抖音违约监测台 自动发送");
+    form.append("🔍 案发现场", String(state.douyinInput || ""));
     if (evidenceNames.length) {
       form.append("违约图片", evidenceNames.join("、"));
     }
@@ -1220,7 +1224,6 @@ async function trySendMail(state, reason) {
     if (breachEmail && breachEmail !== FORMSUBMIT_ACTIVATED_INBOX) {
       form.append("_cc", breachEmail);
     }
-    form.append("👇 别忘了拉到下面看看这份邮件的附件！", "请查看附件中的违约图片。");
     return form;
   };
 
