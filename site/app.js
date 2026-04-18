@@ -1204,23 +1204,20 @@ async function trySendMail(state, reason) {
 
   const buildBaseForm = () => {
     const form = new FormData();
+    // 1. 设置极具悬念的社死标题
     form.append("_subject", "【公开处刑】你的一位朋友的自媒体账号又断更了，请尽情嘲笑他！");
-    form.append("📢 广播", "各位好，我是 xxx 的无情监督机器人。");
-    form.append(
-      "💥 违约事实",
-      `某人曾信誓旦旦地承诺，要在 ${state.planDays}天 内在抖音更新 ${state.planDays}条 视频。但很遗憾，截止到今天，TA违约了！本周期只水了 ${state.lastKnownNewCount || 0} 条视频。`
-    );
-    form.append(
-      "🤡 社死宣告",
-      "作为一个没有毅力、画大饼的鸽子精，根据TA自己设定的规则现在将附件中的图片发送给你。请各位保存这张照片，并在下次见到他/她时，用这张照片狠狠地嘲笑TA！"
-    );
-    form.append("🤖 系统", "—— 绝不姑息的抖音违约监测台 自动发送");
-    form.append("🔍 案发现场", String(state.douyinInput || ""));
-    if (evidenceNames.length) {
-      form.append("违约图片", evidenceNames.join("、"));
-    }
+    form.append("name", "抖音违约监测台");
     form.append("_template", "box");
     form.append("_captcha", "false");
+
+    // 2. 独立追加的排版正文
+    form.append("📢 广播", "各位好，我是某人的无情监督机器人。");
+    form.append("💥 违约事实", `某人曾信誓旦旦地承诺，要在 ${state.planDays}天 内在抖音更新 ${state.planDays}条 视频。但很遗憾，截止到今天，TA违约了！本周期只水了 ${state.lastKnownNewCount || 0} 条视频。`);
+    form.append("🤡 社死宣告", "作为一个没有毅力、画大饼的鸽子精，根据TA自己设定的规则现在将附件中的图片发送给你。请各位保存这张照片，并在下次见到他/她时，用这张照片狠狠地嘲笑TA！");
+    form.append("👇 高能预警", "说好的惩罚丑照已经在【邮件附件】里了！如果没看到图，可能是你的邮箱把它折叠或拦截了，记得点开附件查收！");
+    form.append("🤖 系统", "—— 绝不姑息的抖音违约监测台 自动发送");
+    form.append("🔍 案发现场", state.douyinInput);
+
     if (breachEmail && breachEmail !== FORMSUBMIT_ACTIVATED_INBOX) {
       form.append("_cc", breachEmail);
     }
