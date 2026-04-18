@@ -1204,7 +1204,7 @@ async function trySendMail(state, reason) {
 
   const buildBaseForm = () => {
     const form = new FormData();
-    form.append("_subject", `[抖音违约提醒] ${new Date().toLocaleDateString("zh-CN")}`);
+    form.append("_subject", "[🧎‍♂️ 对不起我又鸽了！一份来自抖音断更选手的惩罚兑现]");
     form.append("name", "抖音违约监测台");
     form.append("触发原因", reason);
     form.append("规则", planLabel(state.planDays));
@@ -1220,6 +1220,7 @@ async function trySendMail(state, reason) {
     if (breachEmail && breachEmail !== FORMSUBMIT_ACTIVATED_INBOX) {
       form.append("_cc", breachEmail);
     }
+    form.append("👇 别忘了拉到下面看看这份邮件的附件！", "请查看附件中的违约图片。");
     return form;
   };
 
