@@ -1,5 +1,4 @@
 const STORAGE_KEY = "douyin-breach-monitor-v4";
-const CLOUD_STATE_URL = "https://raw.githubusercontent.com/link0001s/douyin-auto-reminder/main/state.json";
 const FORMSUBMIT_ACTIVATED_INBOX = "2879154754@qq.com";
 const UNLOCK_TAP_TARGET = 5;
 const UNLOCK_TAP_WINDOW_MS = 5000;
@@ -52,6 +51,10 @@ function ts() {
 function normalizeRunLogText(text) {
   const raw = String(text || "");
   const lower = raw.toLowerCase();
+
+  if (raw.includes("抓取失败，请稍后再试")) {
+    return raw;
+  }
 
   const failSignals = [
     "云端抓取失败",
@@ -633,63 +636,6 @@ function handleEvidenceImageClear() {
   }
 }
 
-async function fetchCloudState() {
-  const cloudUrl = `${CLOUD_STATE_URL}?t=${Date.now()}`;
-  const res = await fetchWithTimeout(
-    cloudUrl,
-    {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
-    },
-    10000
-  );
-
-  if (res.status === 404) {
-    return {
-      cloud_result: "not_initialized",
-      last_checked_at: null,
-      account_url: "",
-      __not_ready: true,
-    };
-  }
-  if (!res.ok) {
-    throw new Error(`读取云端状态失败（HTTP ${res.status}）`);
-  }
-
-  const payload = await res.json().catch(() => null);
-  if (!payload || typeof payload !== "object") {
-    throw new Error("云端状态格式无效");
-  }
-  return payload;
-}
-
-function buildCloudResultText(cloudState) {
-  const checkedAt = formatTs(cloudState?.last_checked_at || "");
-  const result = String(cloudState?.cloud_result || "");
-
-  if (result === "new_video") {
-    return `云端检测：已更新（${checkedAt}）`;
-  }
-  if (result === "no_update") {
-    return `云端检测：未更新，已发催更邮件（${checkedAt}）`;
-  }
-  if (result === "initialized") {
-    return `云端已初始化（${checkedAt}）`;
-  }
-  if (result === "initialized_no_sample") {
-    return `云端已初始化（暂未抓到样本，${checkedAt}）`;
-  }
-  if (result === "fetch_failed") {
-    return `云端抓取失败（已跳过提醒，${checkedAt}）`;
-  }
-  if (result === "not_initialized") {
-    return "云端未初始化，请先在 GitHub Actions 运行一次。";
-  }
-  return `云端最近检测时间：${checkedAt}`;
-}
-
 const FETCH_PROXIES = [
   {
     name: "jina",
@@ -974,8 +920,8 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const state = JSON.parse(raw);
-    if (state && typeof state === "object" && !Object.prototype.hasOwnProperty.call(state, "cloudOnly")) {
-      state.cloudOnly = true;
+    if (state && typeof state === "object") {
+      delete state.cloudOnly;
     }
     return state;
   } catch {
@@ -1188,9 +1134,9 @@ async function fetchVideoIds(douyinUrl) {
 
   if (sawAntiBot) {
     if (blockedUntil) {
-      throw new Error(`检测通道被抖音风控拦截，预计可在 ${blockedUntil} 后重试；若持续失败，请改用云端版（带 cookies）`);
+      throw new Error(`检测通道被抖音风控拦截，预计可在 ${blockedUntil} 后重试`);
     }
-    throw new Error("检测通道被抖音风控拦截，请稍后重试；若持续失败，请改用云端版（带 cookies）");
+    throw new Error("检测通道被抖音风控拦截，请稍后重试");
   }
   if (sawShortLink) {
     throw new Error("短链解析失败，请改粘贴完整主页链接（https://www.douyin.com/user/...）");
@@ -1328,11 +1274,7 @@ function render(state) {
 
   els.cycleView.textContent = planLabel(safeDays, safeVideos);
   els.dueTime.textContent = `到期时间：${formatTs(state.dueAt)}`;
-  if (state.cloudOnly) {
-    els.progressCount.textContent = state.lastKnownNewCount ? "已更新" : "未更新";
-  } else {
-    els.progressCount.textContent = `${state.lastKnownNewCount || 0} / ${safeVideos}`;
-  }
+  els.progressCount.textContent = `${state.lastKnownNewCount || 0} / ${safeVideos}`;
   els.latestTime.textContent = `最近检测：${formatTs(state.lastManualCheckAt || state.lastAutoCheckAt)}`;
   els.emailView.textContent = state.noticeEmail || "-";
   els.latestResult.textContent = `状态：${normalizeRunLogText(state.latestResultText || "待初始化")}`;
@@ -1418,16 +1360,17 @@ async function handleSave() {
   const input = readForm();
   setBusy(true);
   setPill("load", "保存中");
-  addLog(`初始化周期：${planLabel(input.planDays, input.requiredVideos)}（云端版）`);
+  addLog(`初始化周期：${planLabel(input.planDays, input.requiredVideos)}（本地版）`);
   addLog(`识别到检测链接：${input.douyinUrl}`);
 
   try {
+    const ids = await fetchVideoIds(input.douyinUrl);
     const nowIso = new Date().toISOString();
     const evidenceSeed = applyEvidenceImages({}, getEvidenceImages(prev));
     let state = {
       ...input,
       ...evidenceSeed,
-      baselineVideoIds: [],
+      baselineVideoIds: ids,
       cycleStartAt: nowIso,
       dueAt: nowIso,
       lastKnownNewCount: 0,
@@ -1437,21 +1380,20 @@ async function handleSave() {
       lastNoticeAt: null,
       configLocked: true,
       deerHardLock: false,
-      cloudOnly: true,
       latestResultText: "初始化完成",
       lastStatus: "ok",
     };
 
-    state = startCycleFrom(state, nowIso, []);
+    state = startCycleFrom(state, nowIso, ids);
     if (!saveState(state)) {
       throw new Error("本地空间不足，保存状态未完成。请先移除部分违约图片后重试。");
     }
     render(state);
-    addLog("保存成功（云端版）。不再本地抓抖音，点击“点检测”会同步云端状态。");
+    addLog("初始化成功，已记录初始视频基准");
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[handleSave] 本地初始化抓取失败：", err);
     setPill("warn", "保存失败");
-    addLog(`保存失败: ${msg}`);
+    addLog("抓取失败，请稍后再试");
   } finally {
     setBusy(false);
   }
@@ -1466,63 +1408,53 @@ async function handleManualRefresh() {
 
   setBusy(true);
   setPill("load", "检测中");
-  addLog("开始手动检测（云端状态同步）...");
+  addLog("开始手动检测（本地代理抓取）...");
 
   try {
-    const cloud = await fetchCloudState();
+    const douyinUrl = state.douyinUrl || normalizeDouyinUrl(state.douyinInput || "");
+    const currentIds = await fetchVideoIds(douyinUrl);
     const nowIso = new Date().toISOString();
-    const cloudResultText = buildCloudResultText(cloud);
-    const cloudResult = String(cloud?.cloud_result || "");
-    let mismatchDetected = false;
+    const requiredVideos = Number(state.requiredVideos || state.planDays || 30);
+    const newCount = calcNewCount(currentIds, state.baselineVideoIds);
 
     let next = {
       ...state,
-      cloudOnly: true,
+      douyinUrl,
       lastManualCheckAt: nowIso,
-      lastAutoCheckAt: cloud?.last_checked_at || nowIso,
-      lastKnownNewCount: cloudResult === "new_video" ? 1 : 0,
-      latestResultText: cloudResultText,
-      lastStatus: cloudResult === "no_update" ? "warn" : "ok",
+      lastAutoCheckAt: nowIso,
+      lastKnownNewCount: newCount,
+      latestResultText: `检测正常：${newCount}/${requiredVideos}`,
+      lastStatus: "ok",
     };
 
-    if (cloud.__not_ready) {
-      next = {
-        ...next,
-        lastStatus: "ok",
-      };
-      addLog("云端状态文件还未生成，已进入等待模式。配置好 Secrets 后到 Actions 手动 Run 一次即可。");
-    }
-
-    if (cloud?.account_url) {
-      const cloudAccount = normalizeDouyinUrl(String(cloud.account_url));
-      const localAccount = normalizeDouyinUrl(state.douyinInput || state.douyinUrl || "");
-      if (isAccountMismatch(localAccount, cloudAccount)) {
-        mismatchDetected = true;
-        next = {
-          ...next,
-          lastStatus: "warn",
-          latestResultText: "云端监控账号与当前输入不一致，请检查云端配置。",
-        };
-        addLog(`云端账号：${cloudAccount}`);
-      }
-    }
-
+    const dueReached = new Date(nowIso) >= new Date(state.dueAt);
     const alreadyNotified = next.noticeCycleStartAt === next.cycleStartAt;
-    if (cloudResult === "no_update" && !mismatchDetected && !alreadyNotified) {
+    if (dueReached && newCount < requiredVideos && !alreadyNotified) {
       next = await triggerBreachNotice(
         next,
-        `违约：${planLabel(next.planDays || 30, next.requiredVideos || next.planDays || 30)}检测未达标`,
-        false
+        `违约：${planLabel(next.planDays || 30, requiredVideos)}检测未达标`,
+        true
       );
+    } else if (dueReached && newCount < requiredVideos) {
+      next = {
+        ...next,
+        lastStatus: "warn",
+        latestResultText: `违约已触发：${newCount}/${requiredVideos}`,
+      };
+    } else if (dueReached) {
+      next = {
+        ...next,
+        latestResultText: `到期检测达标：${newCount}/${requiredVideos}`,
+      };
     }
 
     saveState(next);
     render(next);
     addLog(next.latestResultText);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[handleManualRefresh] 本地抓取失败：", err);
     setPill("warn", "检测失败");
-    addLog(`检测失败: ${msg}`);
+    addLog("抓取失败，请稍后再试");
   } finally {
     setBusy(false);
   }
@@ -1582,7 +1514,6 @@ async function handleDragonBreachTap() {
 async function autoCheckNoManualDetection() {
   const state = loadState();
   if (!state || !state.dueAt || !state.noticeEmail) return;
-  if (state.cloudOnly) return;
 
   const nowIso = new Date().toISOString();
   const dueReached = new Date(nowIso) >= new Date(state.dueAt);
@@ -1686,4 +1617,4 @@ render(loadState());
 autoCompactEvidenceOnBoot();
 autoCheckNoManualDetection();
 setInterval(autoCheckNoManualDetection, 60 * 1000);
-addLog("云端模式已启用：保存不再本地抓抖音，点检测会同步云端“已更新/未更新”状态。");
+addLog("本地代理检测模式已启用：保存会记录初始视频基准，点检测会实时抓取并计算新增条数。");
